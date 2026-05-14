@@ -228,6 +228,30 @@ DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const FILE_DATA& val )
 	return pos - buffOffset;
 }
 
+bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, FILE_DATA* val )
+{
+	const BYTE* rb = ReadStructIntro(buff, &buffEnd);
+#if 0
+	if( rb == NULL ||
+		!ReadVALUE(ver, &rb, buffEnd, &val->Name) ||
+		!ReadVALUE(ver, &rb, buffEnd, &val->Data)){
+		return false;
+	}
+#else
+	if( rb == NULL ||
+		!ReadVALUE(ver, &rb, buffEnd, &val->Name)){
+		return false;
+	}
+	int dummy;
+	if( !ReadVALUE(ver, &rb, buffEnd, &dummy) ||
+		!ReadVALUE(ver, &rb, buffEnd, &dummy)){
+		return false;
+	}
+	val->Data.assign(rb, buffEnd);
+#endif	
+	return true;
+}
+
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const REC_SETTING_DATA& val )
 {
 	DWORD pos = buffOffset + sizeof(DWORD);
@@ -1214,6 +1238,29 @@ DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const TUNER_PROCESS_ST
 	return pos - buffOffset;
 }
 
+bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, TUNER_PROCESS_STATUS_INFO* val )
+{
+	const BYTE* rb = ReadStructIntro(buff, &buffEnd);
+	DWORD dwSignalLv;
+	if( rb == NULL ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->tunerID) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->processID) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->drop) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->scramble) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &dwSignalLv) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->space) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->ch) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->originalNetworkID) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->transportStreamID) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->recFlag) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->epgCapFlag) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->extraFlags) ){
+		return false;
+	}
+	val->signalLv = DWORDToFloat(dwSignalLv);
+	return true;
+}
+
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const EPGDB_SERVICE_EVENT_INFO& val )
 {
 	DWORD pos = buffOffset + sizeof(DWORD);
@@ -1326,6 +1373,17 @@ DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const NWPLAY_TIMESHIFT
 	pos += WriteVALUE(ver, buff, pos, val.filePath);
 	WriteVALUE(0, buff, buffOffset, pos - buffOffset);
 	return pos - buffOffset;
+}
+
+bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, NWPLAY_TIMESHIFT_INFO* val )
+{
+	const BYTE* rb = ReadStructIntro(buff, &buffEnd);
+	if( rb == NULL ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->ctrlID) ||
+	    !ReadVALUE(ver, &rb, buffEnd, &val->filePath) ){
+		return false;
+	}
+	return true;
 }
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const NOTIFY_SRV_INFO& val )

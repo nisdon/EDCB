@@ -1,6 +1,6 @@
 ﻿#include "stdafx.h"
 #include "SendCtrlCmd.h"
-#if !defined(SEND_CTRL_CMD_NO_TCP) && defined(_WIN32)
+#if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #endif
@@ -12,6 +12,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <fcntl.h>
 #endif
 
 CSendCtrlCmd::CSendCtrlCmd(void)
@@ -28,12 +30,9 @@ CSendCtrlCmd::CSendCtrlCmd(void)
 
 CSendCtrlCmd::~CSendCtrlCmd(void)
 {
-#if !defined(SEND_CTRL_CMD_NO_TCP) && defined(_WIN32)
 	SetSendMode(FALSE);
-#endif
 }
 
-#if !defined(SEND_CTRL_CMD_NO_TCP) && defined(_WIN32)
 
 //コマンド送信方法の設定
 //引数：
@@ -43,16 +42,19 @@ void CSendCtrlCmd::SetSendMode(
 	)
 {
 	if( this->tcpFlag == FALSE && tcpFlag_ ){
-		WSAData wsaData;
-		WSAStartup(MAKEWORD(2, 2), &wsaData);
+#if defined(_WIN32)
+//		WSAData wsaData;
+//		WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
 		this->tcpFlag = TRUE;
 	}else if( this->tcpFlag && tcpFlag_ == FALSE ){
-		WSACleanup();
+#if defined(_WIN32)
+//		WSACleanup();
+#endif
 		this->tcpFlag = FALSE;
 	}
 }
 
-#endif
 
 //名前付きパイプモード時の接続先を設定
 //EpgTimerSrv.exeに対するコマンドは設定しなくても可（デフォルト値になっている）
@@ -216,7 +218,6 @@ DWORD SendPipe(const wstring& pipeName, DWORD timeOut, const CCmdStream& cmd, CC
 	return res->GetParam();
 }
 
-#if !defined(SEND_CTRL_CMD_NO_TCP) && defined(_WIN32)
 
 int RecvAll(SOCKET sock, char* buf, int len, int flags)
 {
@@ -233,7 +234,8 @@ int RecvAll(SOCKET sock, char* buf, int len, int flags)
 	return n;
 }
 
-DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cmd, CCmdStream* res)
+#if defined(_WIN32)
+DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cmd, CCmdStream* res, int* client_sock)
 {
 	string ipA;
 	WtoUTF8(ip, ipA);
@@ -292,15 +294,116 @@ DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cm
 		closesocket(sock);
 		return CMD_ERR;
 	}
-	closesocket(sock);
+	if(client_sock == NULL)
+		closesocket(sock);
+	else
+		*client_sock = sock;
 
 	return res->GetParam();
 }
+#else
+DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cmd, CCmdStream* res, int* client_sock)
+{
+	struct addrinfo hints;
+	memset(&hints,0,sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
 
+	string hostStr;
+	WtoA(ip,hostStr);
+	string portStr = std::to_string(port);
+	struct addrinfo *result, *rp;
+	int ret = getaddrinfo(hostStr.c_str(),portStr.c_str(),&hints,&result);
+
+	if(ret!=0){
+		fprintf(stderr,"Error getaddrinfo (%s)\n",gai_strerror(ret));
+		return CMD_ERR_CONNECT;
+	}
+
+	int sock;
+	long flag;
+	for(rp = result; rp != NULL; rp = rp->ai_next){
+		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		if(sock == -1)
+			continue;
+		// Set to non blocking mode.
+		if( (flag = fcntl(sock, F_GETFL, NULL)) < 0){
+			fprintf(stderr,"Error fcntl(..., F_GETFL) (%s)\n",strerror(errno));
+			return CMD_ERR;
+		}
+		flag |= O_NONBLOCK;
+		if( fcntl(sock, F_SETFL, flag) < 0){
+			fprintf(stderr,"Error fcntl(..., F_SETFL) (%s)\n",strerror(errno));
+			return CMD_ERR;
+		}
+		ret = connect(sock, rp->ai_addr, rp->ai_addrlen);
+		if(ret == 0)
+			break;
+		else if(errno == EINPROGRESS){
+			struct timeval tv;
+			tv.tv_sec = timeOut / 1000;
+			tv.tv_usec = 0;
+			fd_set fds;
+			FD_ZERO(&fds);
+			FD_SET(sock, &fds);
+			ret = select(sock+1, NULL, &fds, NULL, &tv);
+			if(ret > 0){
+				int valopt;
+				socklen_t lon = sizeof(int);
+				if(getsockopt(sock, SOL_SOCKET, SO_ERROR, (void *)(&valopt), &lon) >= 0 && valopt==0)
+					break;
+			}
+		}
+		close(sock);
+	}
+
+	if(rp == NULL){
+		freeaddrinfo(result);
+		fprintf(stderr,"Error Could not connect\n");
+		return CMD_ERR_CONNECT;
+	}
+
+	freeaddrinfo(result);
+	// Set to blocking mode
+	flag &= (~O_NONBLOCK);
+	if( fcntl(sock, F_SETFL, flag) < 0){
+		fprintf(stderr,"Error fcntl(..., F_SETFL) (%s)\n",strerror(errno));
+		return CMD_ERR;
+	}
+	struct timeval to;
+	to.tv_sec = CSendCtrlCmd::SND_RCV_TIMEOUT / 1000;
+	to.tv_usec = 0;
+	setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&to, sizeof(to));
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&to, sizeof(to));
+
+	//送信
+	DWORD head[2];
+	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
+		close(sock);
+		return CMD_ERR;
+	}
+	//受信
+	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
+		close(sock);
+		return CMD_ERR;
+	}
+	res->SetParam(head[0]);
+	res->Resize(head[1]);
+	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
+		close(sock);
+		return CMD_ERR;
+	}
+	if(client_sock == NULL)
+		close(sock);
+	else
+		*client_sock = sock;
+
+	return res->GetParam();
+}
 #endif
 }
 
-DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res)
+DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res, int* client_sock)
 {
 	DWORD ret = CMD_ERR;
 	CCmdStream tmpRes;
@@ -311,12 +414,31 @@ DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res)
 	if( this->tcpFlag == FALSE ){
 		ret = SendPipe(this->pipeName, this->connectTimeOut, cmd, res);
 	}
-#if !defined(SEND_CTRL_CMD_NO_TCP) && defined(_WIN32)
 	else{
-		ret = SendTCP(this->sendIP, this->sendPort, this->connectTimeOut, cmd, res);
+		ret = SendTCP(this->sendIP, this->sendPort, this->connectTimeOut, cmd, res, client_sock);
 	}
-#endif
 
 	return ret;
 }
 
+int CSendCtrlCmd::ReadStream(int sock, char* buf, int len)
+{
+	int ret = RecvAll(sock, buf, len, 0);
+	if(ret == CMD_ERR)
+	{
+#ifdef _WIN32
+		closesocket(sock);
+#else
+		close(sock);
+#endif
+	}
+	return ret;
+}
+void CSendCtrlCmd::CloseStream(int sock)
+{
+#ifdef _WIN32
+	closesocket(sock);
+#else
+	close(sock);
+#endif
+}

@@ -62,7 +62,10 @@ DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const SYSTEMTIME& val 
 bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, SYSTEMTIME* val );
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const FILE_DATA& val );
+bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, FILE_DATA* val );
+
 inline DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const vector<FILE_DATA>& val ){ CCUTIL_VECTOR_WRITE_; }
+inline bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, vector<FILE_DATA>* val ){ CCUTIL_VECTOR_READ_; }
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const REC_SETTING_DATA& val );
 bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, REC_SETTING_DATA* val );
@@ -191,7 +194,10 @@ DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const TUNER_RESERVE_IN
 inline DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const vector<TUNER_RESERVE_INFO>& val ){ CCUTIL_VECTOR_WRITE_; }
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const TUNER_PROCESS_STATUS_INFO& val );
+bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, TUNER_PROCESS_STATUS_INFO* val );
+
 inline DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const vector<TUNER_PROCESS_STATUS_INFO>& val ){ CCUTIL_VECTOR_WRITE_; }
+inline bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, vector<TUNER_PROCESS_STATUS_INFO>* val ){ CCUTIL_VECTOR_READ_; }
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const EPGDB_SERVICE_EVENT_INFO& val );
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const EPGDB_SERVICE_EVENT_INFO_PTR& val );
@@ -212,6 +218,7 @@ bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, NWPLAY_POS_CMD
 bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, TVTEST_STREAMING_INFO* val );
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const NWPLAY_TIMESHIFT_INFO& val );
+bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, NWPLAY_TIMESHIFT_INFO* val );
 
 DWORD WriteVALUE( WORD ver, BYTE* buff, DWORD buffOffset, const NOTIFY_SRV_INFO& val );
 bool ReadVALUE( WORD ver, const BYTE** buff, const BYTE* buffEnd, NOTIFY_SRV_INFO* val );

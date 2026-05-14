@@ -12,9 +12,9 @@ public:
 	CSendCtrlCmd(void);
 	~CSendCtrlCmd(void);
 
-#if !defined(SEND_CTRL_CMD_NO_TCP) && defined(_WIN32)
 	//送受信タイムアウト（接続先が要求を処理するのにかかる時間よりも十分に長く）
-	static const DWORD SND_RCV_TIMEOUT = 30000;
+//	static const DWORD SND_RCV_TIMEOUT = 30000;
+	static const DWORD SND_RCV_TIMEOUT = 10000;
 
 	//コマンド送信方法の設定
 	//引数：
@@ -22,7 +22,6 @@ public:
 	void SetSendMode(
 		BOOL tcpFlag_
 		);
-#endif
 
 	//名前付きパイプモード時の接続先を設定
 	//EpgTimerSrv.exeに対するコマンドは設定しなくても可（デフォルト値になっている）
@@ -499,6 +498,333 @@ public:
 		){
 		return SendCmdWithoutData(CMD2_VIEW_APP_EXEC_VIEW_APP);
 	}
+	
+	//予約変更
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]変更する予約ID一覧
+	DWORD SendChgReserve(
+		const vector<RESERVE_DATA>& val
+		){
+		return SendCmdData2(CMD2_EPG_SRV_CHG_RESERVE2, val);
+	}
+	//予約取得
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]取得する予約ID
+	// resVal				[OUT]予約
+	DWORD SendGetReserve(
+		DWORD val,
+		RESERVE_DATA* resVal
+		){
+		return SendAndReceiveCmdData2(CMD2_EPG_SRV_GET_RESERVE2, val, resVal);
+	}
+
+	//ストリーム配信用ファイルを開く
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]ストリーム配信用ファイル
+	// resVal				[OUT]制御用CtrlID
+	DWORD SendNwPlayOpen(
+		const wstring& val,
+		DWORD* resVal
+		){
+		return SendAndReceiveCmdData(CMD2_EPG_SRV_NWPLAY_OPEN, val, resVal);
+	}
+
+	//ストリーム配信用ファイルをタイムシフトモードで開く
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]予約ID
+	// resVal				[OUT]タイムシフト情報
+	DWORD SendNwPlayTfOpen(
+		DWORD val,
+		NWPLAY_TIMESHIFT_INFO* resVal
+		){
+		return SendAndReceiveCmdData(CMD2_EPG_SRV_NWPLAY_TF_OPEN, val, resVal);
+	}
+
+	//読み込まれたEPGデータのサービスの一覧取得
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[OUT]サービス一覧
+	DWORD SendEnumService(
+		vector<EPGDB_SERVICE_INFO>* val
+		){
+		return ReceiveCmdData(CMD2_EPG_SRV_ENUM_SERVICE, val);
+	}
+
+	//NetworkTVモードで起動するときの送信モード
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]モード（1:UDP 2:TCP 3:UDP+TCP）
+	DWORD SendNwTVMode(
+		DWORD val
+		){
+		return SendCmdData(CMD2_EPG_SRV_NWTV_MODE, val);
+	}
+
+	//NetworkTVモードのViewアプリのチャンネルを切り替え
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]チャンネル情報
+	DWORD SendNwTVSetCh(
+		SET_CH_INFO val
+		){
+		return SendCmdData(CMD2_EPG_SRV_NWTV_SET_CH, val);
+	}
+
+	//NetworkTVモードのEpgDataCap_Bonのチャンネルを切り替え
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]チャンネル情報
+	// resVal				[OUT]プロセスID
+	DWORD SendNwTVSetCh2(
+		SET_CH_INFO val,
+		int* resVal
+		){
+		return SendAndReceiveCmdData(CMD2_EPG_SRV_NWTV_ID_SET_CH, val, resVal);
+	}
+
+	//NetworkTVモードで起動中のEpgDataCap_Bonを終了
+	//戻り値：
+	// エラーコード
+	DWORD SendNwTVClose(
+		){
+		return SendCmdWithoutData(CMD2_EPG_SRV_NWTV_CLOSE);
+	}
+
+	//NetworkTVモードで起動中のEpgDataCap_Bonを終了
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]チューナーID
+	DWORD SendNwTVClose2(
+		int val
+		){
+		return SendCmdData(CMD2_EPG_SRV_NWTV_ID_CLOSE, val);
+	}
+
+	//サービス指定で番組情報を一覧を取得する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]ONID<<32 | TSID<<16 | SIDとしたサービスID
+	// resVal				[OUT]番組情報一覧
+	DWORD SendEnumPgInfo(
+		ULONGLONG val,
+		vector<EPGDB_EVENT_INFO>* resVal
+		){
+		return SendAndReceiveCmdData(CMD2_EPG_SRV_ENUM_PG_INFO, val, resVal);
+	}
+
+	//指定ファイルをまとめて転送する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]指定ファイル名
+	// resVal				[OUT]指定ファイルのバイナリデータ
+	DWORD SendFileCopy2(
+		const vector<std::wstring>& val,
+		vector<FILE_DATA>* resVal
+		){
+		return SendAndReceiveCmdData2(CMD2_EPG_SRV_FILE_COPY2, val, resVal);
+	}
+
+	//予約を追加する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]追加する予約一覧
+	DWORD SendAddReserve(
+		const vector<RESERVE_DATA>& val
+		){
+		return SendCmdData2(CMD2_EPG_SRV_ADD_RESERVE2, val);
+	}
+
+	//指定イベントの番組情報を取得する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]ONID<<48 | TSID<<32 | SID<<16 | EventIDとしたID
+	// resVal				[OUT]番組情報
+	DWORD SendGetPgInfo(
+		ULONGLONG val,
+		EPGDB_EVENT_INFO* resVal
+		){
+		return SendAndReceiveCmdData2(CMD2_EPG_SRV_GET_PG_INFO, val, resVal);
+	}
+
+	//録画済み情報一覧取得
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[OUT]録画済み情報一覧
+	DWORD SendEnumRecInfo(
+		vector<REC_FILE_INFO>* val
+		){
+		return ReceiveCmdData2(CMD2_EPG_SRV_ENUM_RECINFO2, val);
+	}
+
+	//録画済み情報を削除する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]削除するID一覧
+	DWORD SendDelRecInfo(
+		const vector<DWORD>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_DEL_RECINFO, val);
+	}
+
+	//自動予約登録条件一覧を取得する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[OUT]条件一覧
+	DWORD SendEnumEpgAutoAdd2(
+		vector<EPG_AUTO_ADD_DATA>* val
+		){
+		return ReceiveCmdData2(CMD2_EPG_SRV_ENUM_AUTO_ADD2, val);
+	}
+
+	//自動予約登録の条件追加
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]自動予約登録条件
+	DWORD SendAddEpgAutoAdd(
+		const vector<EPG_AUTO_ADD_DATA>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_ADD_AUTO_ADD, val);
+	}
+
+	//自動予約登録の条件削除
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]自動予約登録条件
+	DWORD SendDelEpgAutoAdd(
+		const vector<DWORD>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_DEL_AUTO_ADD, val);
+	}
+
+	//自動予約登録の条件変更
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]自動予約登録条件
+	DWORD SendChgEpgAutoAdd(
+		const vector<EPG_AUTO_ADD_DATA>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_CHG_AUTO_ADD, val);
+	}
+
+	//プログラム予約自動登録の条件追加
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]プログラム予約自動登録の条件
+	DWORD SendAddManuAutoAdd(
+		const vector<MANUAL_AUTO_ADD_DATA>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_ADD_MANU_ADD, val);
+	}
+
+	//プログラム予約自動登録の条件変更
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]プログラム予約自動登録の条件
+	DWORD SendChgManuAutoAdd(
+		const vector<MANUAL_AUTO_ADD_DATA>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_CHG_MANU_ADD, val);
+	}
+
+	//プログラム予約自動登録の条件削除
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]プログラム予約自動登録の条件
+	DWORD SendDelManuAutoAdd(
+		const vector<DWORD>& val
+		){
+		return SendCmdData(CMD2_EPG_SRV_DEL_MANU_ADD, val);
+	}
+
+	//プログラム予約自動登録の条件一覧取得
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[OUT]条件一覧	
+	DWORD SendEnumManualAdd2(
+		vector<MANUAL_AUTO_ADD_DATA>* val
+		){
+		return ReceiveCmdData2(CMD2_EPG_SRV_ENUM_MANU_ADD2, val);
+	}
+
+	//現在のNOTIFY_UPDATE_SRV_STATUSを取得する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]巡回カウンター
+	// resVal				[OUT]情報通知用パラメーター
+	DWORD SendGetNotifySrvStatus(
+		DWORD val,
+		NOTIFY_SRV_INFO* resVal
+		){
+		return SendAndReceiveCmdData2(CMD2_EPG_SRV_GET_STATUS_NOTIFY2, val, resVal);
+	}
+
+	//録画ファイルのネットワークパスを取得
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]録画ファイルパス
+	// resVal				[OUT]ネットワークパス
+	DWORD SendNetworkPath(
+		const wstring& val,
+		wstring* resVal
+		){
+		return SendAndReceiveCmdData(CMD2_EPG_SRV_GET_NETWORK_PATH, val, resVal);
+	}
+
+	//起動中のチューナーについてサーバーが把握している情報の一覧を取得する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// Val					[OUT]チューナー情報一覧
+	DWORD SendEnumTunerProcess(
+		vector<TUNER_PROCESS_STATUS_INFO>* val
+		){
+		return ReceiveCmdData(CMD2_EPG_SRV_ENUM_TUNER_PROCESS, val);
+	}
+
+	//ViewアプリのSrvPipeストリームを転送する
+	//戻り値：
+	// エラーコード
+	//引数：
+	// Val					[IN]プロセスID
+	// resVal				[OUT]TCPソケット
+	DWORD SendRelayView(
+		int val,
+		int* resVal
+		){
+		return SendCmdData3(CMD2_EPG_SRV_RELAY_VIEW_STREAM, val, resVal);
+	}
+
+	int ReadStream(int sock, char* buf, int len);
+	void CloseStream(int sock);
 
 private:
 	BOOL tcpFlag;
@@ -509,11 +835,12 @@ private:
 
 	CSendCtrlCmd(const CSendCtrlCmd&);
 	CSendCtrlCmd& operator=(const CSendCtrlCmd&);
-	DWORD SendCmdStream(const CCmdStream& cmd, CCmdStream* res);
+	DWORD SendCmdStream(const CCmdStream& cmd, CCmdStream* res, int* client_sock = NULL);
 	DWORD SendCmdWithoutData(DWORD param, CCmdStream* res = NULL);
 	DWORD SendCmdWithoutData2(DWORD param, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData(DWORD param, const T& val, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData2(DWORD param, const T& val, CCmdStream* res = NULL);
+	template<class T> DWORD SendCmdData3(DWORD param, const T& val, int* client_sock, CCmdStream* res = NULL);
 	template<class T> DWORD ReceiveCmdData(DWORD param, T* resVal);
 	template<class T> DWORD ReceiveCmdData2(DWORD param, T* resVal);
 	template<class T, class U> DWORD SendAndReceiveCmdData(DWORD param, const T& val, U* resVal);
@@ -547,6 +874,14 @@ DWORD CSendCtrlCmd::SendCmdData2(DWORD param, const T& val, CCmdStream* res)
 	CCmdStream cmd(param);
 	cmd.WriteVALUE2WithVersion(ver, val);
 	return SendCmdStream(cmd, res);
+}
+
+template<class T>
+DWORD CSendCtrlCmd::SendCmdData3(DWORD param, const T& val, int* client_sock, CCmdStream* res)
+{
+	CCmdStream cmd(param);
+	cmd.WriteVALUE(val);
+	return SendCmdStream(cmd, res, client_sock);
 }
 
 template<class T>
