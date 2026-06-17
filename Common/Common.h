@@ -14,8 +14,13 @@
 #ifndef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
 #endif
+#if defined(__ANDROID__) && __ANDROID_API__ < 24
+#define my_fseek fseek
+#define my_ftell ftell
+#else
 #define my_fseek fseeko
 #define my_ftell ftello
+#endif
 #endif
 #include <string>
 #include <utility>
