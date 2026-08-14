@@ -24,12 +24,13 @@ CSendCtrlCmd::CSendCtrlCmd(void)
 	this->pipeName = CMD2_EPG_SRV_PIPE;
 	this->sendIP = L"127.0.0.1";
 	this->sendPort = 5678;
-
+	this->wakeupFd = 0;
 }
 
 
 CSendCtrlCmd::~CSendCtrlCmd(void)
 {
+	CloseWakeupFd();
 	SetSendMode(FALSE);
 }
 
@@ -218,7 +219,6 @@ DWORD SendPipe(const wstring& pipeName, DWORD timeOut, const CCmdStream& cmd, CC
 	return res->GetParam();
 }
 
-
 int RecvAll(SOCKET sock, char* buf, int len, int flags)
 {
 	int n = 0;
@@ -234,9 +234,9 @@ int RecvAll(SOCKET sock, char* buf, int len, int flags)
 	return n;
 }
 
-#if defined(_WIN32)
-DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cmd, CCmdStream* res, int* client_sock)
+DWORD ConnectTCP(const wstring& ip, DWORD port, DWORD timeOut, int* client_sock)
 {
+#ifdef _WIN32
 	string ipA;
 	WtoUTF8(ip, ipA);
 	char szPort[16];
@@ -250,7 +250,8 @@ DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cm
 	if( getaddrinfo(ipA.c_str(), szPort, &hints, &result) != 0 ){
 		return CMD_ERR_INVALID_ARG;
 	}
-	SOCKET sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+	SOCKET& sock = *(SOCKET*)client_sock;
+	sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
 	if( sock != INVALID_SOCKET ){
 		fd_set wmask;
 		FD_ZERO(&wmask);
@@ -277,33 +278,8 @@ DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cm
 		return CMD_ERR_CONNECT;
 	}
 
-	//送信
-	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
-		closesocket(sock);
-		return CMD_ERR;
-	}
-	//受信
-	BYTE head[8];
-	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
-		closesocket(sock);
-		return CMD_ERR;
-	}
-	res->SetParam(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
-	res->Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
-	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
-		closesocket(sock);
-		return CMD_ERR;
-	}
-	if(client_sock == NULL)
-		closesocket(sock);
-	else
-		*client_sock = sock;
-
-	return res->GetParam();
-}
+	return CMD_SUCCESS;
 #else
-DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cmd, CCmdStream* res, int* client_sock)
-{
 	struct addrinfo hints;
 	memset(&hints,0,sizeof(hints));
 	hints.ai_family = AF_INET;
@@ -320,7 +296,7 @@ DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cm
 		return CMD_ERR_CONNECT;
 	}
 
-	int sock;
+	int& sock = *client_sock;
 	long flag;
 	for(rp = result; rp != NULL; rp = rp->ai_next){
 		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
@@ -376,52 +352,142 @@ DWORD SendTCP(const wstring& ip, DWORD port, DWORD timeOut, const CCmdStream& cm
 	setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&to, sizeof(to));
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&to, sizeof(to));
 
+	return CMD_SUCCESS;
+#endif
+}
+DWORD ReceiveCommand(const CCmdStream& cmd, CCmdStream* res, int sock)
+{
+#ifdef _WIN32
+	//送信
+	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
+		return CMD_ERR;
+	}
+
+	//受信
+	BYTE head[8];
+	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
+		return CMD_ERR;
+	}
+	res->SetParam(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
+	res->Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
+	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
+		return CMD_ERR;
+	}
+	return res->GetParam();
+#else
 	//送信
 	DWORD head[2];
 	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
-		close(sock);
 		return CMD_ERR;
 	}
 	//受信
 	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
-		close(sock);
 		return CMD_ERR;
 	}
 	res->SetParam(head[0]);
 	res->Resize(head[1]);
 	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
-		close(sock);
 		return CMD_ERR;
 	}
-	if(client_sock == NULL)
-		close(sock);
-	else
-		*client_sock = sock;
-
 	return res->GetParam();
+#endif
 }
+DWORD ReceiveCommandWithPoll(const CCmdStream& cmd, CCmdStream* res, int sock, int wakeup_fd)
+{
+#ifdef _WIN32
+	//送信
+	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
+		return CMD_ERR;
+	}
+	//ロングポーリング
+	std::vector<WSAPOLLFD> fds(1);
+	fds[0].fd = sock;
+	fds[0].events = POLLRDNORM;
+	fds[0].revents = 0;
+
+	int timeout_ms = -1;
+	int ret = WSAPoll(fds.data(), fds.size(), timeout_ms);
+	if(ret < 0)
+	{
+		return CMD_ERR;
+	}
+	else if(ret == 0)
+	{
+		return CMD_ERR_TIMEOUT;
+	}	
+	if(fds[0].revents & POLLRDNORM)
+	{
+		DWORD head[2];
+
+		//受信
+		if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
+			return CMD_ERR;
+		}
+		res->SetParam(head[0]);
+		res->Resize(head[1]);
+		if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
+			return CMD_ERR;
+		}
+	}
+	return res->GetParam();
+#else
+	//送信
+	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
+		return CMD_ERR;
+	}
+	//ロングポーリング
+	std::vector<pollfd> fds(1);
+	fds[0].fd = sock;
+	fds[0].events = POLLIN;
+	fds[0].revents = 0;
+
+	int timeout_ms = -1;
+	int ret = poll(fds.data(), fds.size(), timeout_ms);
+	if(ret < 0)
+	{
+		return CMD_ERR;
+	}
+	else if(ret == 0)
+	{
+		return CMD_ERR_TIMEOUT;
+	}	
+	if(fds[0].revents & POLLIN)
+	{
+		DWORD head[2];
+
+		//受信
+		if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
+			return CMD_ERR;
+		}
+		res->SetParam(head[0]);
+		res->Resize(head[1]);
+		if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
+			return CMD_ERR;
+		}
+	}
+	return res->GetParam();
 #endif
 }
 
-DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res, int* client_sock)
+void WriteSocket(int sock)
 {
-	DWORD ret = CMD_ERR;
-	CCmdStream tmpRes;
-
-	if( res == NULL ){
-		res = &tmpRes;
-	}
-	if( this->tcpFlag == FALSE ){
-		ret = SendPipe(this->pipeName, this->connectTimeOut, cmd, res);
-	}
-	else{
-		ret = SendTCP(this->sendIP, this->sendPort, this->connectTimeOut, cmd, res, client_sock);
-	}
-
-	return ret;
+#ifdef _WIN32
+	char val = 'x';
+	int ret = send(sock, &val, sizeof(val), 0);
+#else
+	uint64_t val = 1;
+	int ret = write(sock, &val, sizeof(val));
+#endif
 }
-
-int CSendCtrlCmd::ReadStream(int sock, char* buf, int len)
+void CloseSocket(int sock)
+{
+#ifdef _WIN32
+	closesocket(sock);
+#else
+	close(sock);
+#endif
+}
+int ReadSocket(int sock, char* buf, int len)
 {
 	int ret = RecvAll(sock, buf, len, 0);
 	if(ret == CMD_ERR)
@@ -434,11 +500,92 @@ int CSendCtrlCmd::ReadStream(int sock, char* buf, int len)
 	}
 	return ret;
 }
-void CSendCtrlCmd::CloseStream(int sock)
+}
+
+DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res)
 {
-#ifdef _WIN32
-	closesocket(sock);
-#else
-	close(sock);
-#endif
+	DWORD ret = CMD_ERR;
+	CCmdStream tmpRes;
+	int tmpSock;
+
+	if( res == NULL ){
+		res = &tmpRes;
+	}
+	if( this->tcpFlag == FALSE ){
+		ret = SendPipe(this->pipeName, this->connectTimeOut, cmd, res);
+	}
+	else{
+		ret = ConnectTCP(this->sendIP, this->sendPort, this->connectTimeOut, &tmpSock);
+		if(ret == CMD_SUCCESS)
+		{
+			ret = ReceiveCommand(cmd, res, tmpSock);
+			CloseSocket(tmpSock);
+		}
+	}
+	return ret;
+}
+DWORD CSendCtrlCmd::SendCmdStream2(const CCmdStream& cmd, CCmdStream* res)
+{
+	DWORD ret = CMD_ERR;
+	CCmdStream tmpRes;
+	int tmpSock;
+
+	if( res == NULL ){
+		res = &tmpRes;
+	}
+	if( this->tcpFlag == FALSE ){
+		//ToDo: Pipe処理.
+	}
+	else{
+		ret = ConnectTCP(this->sendIP, this->sendPort, this->connectTimeOut, &tmpSock);
+		if(ret == CMD_SUCCESS)
+		{
+			wakeupFd = tmpSock;
+			ret = ReceiveCommandWithPoll(cmd, res, tmpSock, wakeupFd);
+			CloseSocket(tmpSock);
+		}
+	}
+	return ret;
+}
+DWORD CSendCtrlCmd::SendCmdStream3(const CCmdStream& cmd, CCmdStream* res)
+{
+	DWORD ret = CMD_ERR;
+	CCmdStream tmpRes;
+	int tmpSock;
+
+	if( res == NULL ){
+		res = &tmpRes;
+	}
+	if( this->tcpFlag == FALSE ){
+		//ToDo: Pipe処理.
+	}
+	else{
+		ret = ConnectTCP(this->sendIP, this->sendPort, this->connectTimeOut, &tmpSock);
+		if(ret == CMD_SUCCESS)
+		{
+			relaySock = tmpSock;
+			ret = ReceiveCommand(cmd, res, tmpSock);
+			if(ret != CMD_SUCCESS)
+			{
+				CloseSocket(tmpSock);
+			}
+		}
+	}
+	return ret;
+}
+int CSendCtrlCmd::ReadRelay(char* buf, int len)
+{
+	return ReadSocket(relaySock, buf, len);
+}
+void CSendCtrlCmd::CloseRelay()
+{
+	CloseSocket(relaySock);
+}
+void CSendCtrlCmd::CloseWakeupFd()
+{
+	CloseSocket(wakeupFd);
+}
+void CSendCtrlCmd::WriteWakeupFd()
+{
+	WriteSocket(wakeupFd);
 }

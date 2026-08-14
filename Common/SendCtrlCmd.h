@@ -817,14 +817,27 @@ public:
 	// Val					[IN]プロセスID
 	// resVal				[OUT]TCPソケット
 	DWORD SendRelayView(
-		int val,
-		int* resVal
+		int val
 		){
-		return SendCmdData3(CMD2_EPG_SRV_RELAY_VIEW_STREAM, val, resVal);
+		return SendCmdData3(CMD2_EPG_SRV_RELAY_VIEW_STREAM, val);
 	}
 
-	int ReadStream(int sock, char* buf, int len);
-	void CloseStream(int sock);
+	//現在のNOTIFY_UPDATE_SRV_STATUSを取得する（ロングポーリング）
+	//戻り値：
+	// エラーコード
+	//引数：
+	// val					[IN]巡回カウンター
+	// resVal				[OUT]情報通知用パラメーター
+	DWORD SendWaitNotifySrvStatus(
+		DWORD val,
+		NOTIFY_SRV_INFO* resVal
+		){
+		return SendAndReceiveCmdData3(CMD2_EPG_SRV_GET_STATUS_NOTIFY2, val, resVal);
+	}
+
+	int ReadRelay(char* buf, int len);
+	void CloseRelay();
+	void WriteWakeupFd();
 
 private:
 	BOOL tcpFlag;
@@ -832,19 +845,27 @@ private:
 	wstring pipeName;
 	wstring sendIP;
 	DWORD sendPort;
-
+	int wakeupFd;
+	int relaySock;
+	
 	CSendCtrlCmd(const CSendCtrlCmd&);
 	CSendCtrlCmd& operator=(const CSendCtrlCmd&);
-	DWORD SendCmdStream(const CCmdStream& cmd, CCmdStream* res, int* client_sock = NULL);
+	DWORD SendCmdStream(const CCmdStream& cmd, CCmdStream* res);
+	DWORD SendCmdStream2(const CCmdStream& cmd, CCmdStream* res);
+	DWORD SendCmdStream3(const CCmdStream& cmd, CCmdStream* res);
 	DWORD SendCmdWithoutData(DWORD param, CCmdStream* res = NULL);
 	DWORD SendCmdWithoutData2(DWORD param, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData(DWORD param, const T& val, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData2(DWORD param, const T& val, CCmdStream* res = NULL);
-	template<class T> DWORD SendCmdData3(DWORD param, const T& val, int* client_sock, CCmdStream* res = NULL);
+	template<class T> DWORD SendCmdData3(DWORD param, const T& val, CCmdStream* res = NULL);
+	template<class T> DWORD SendCmdData4(DWORD param, const T& val, CCmdStream* res = NULL);
 	template<class T> DWORD ReceiveCmdData(DWORD param, T* resVal);
 	template<class T> DWORD ReceiveCmdData2(DWORD param, T* resVal);
 	template<class T, class U> DWORD SendAndReceiveCmdData(DWORD param, const T& val, U* resVal);
 	template<class T, class U> DWORD SendAndReceiveCmdData2(DWORD param, const T& val, U* resVal);
+	template<class T, class U> DWORD SendAndReceiveCmdData3(DWORD param, const T& val, U* resVal);
+
+	inline void CloseWakeupFd();
 };
 
 #if 1 //インライン/テンプレート定義
@@ -877,11 +898,19 @@ DWORD CSendCtrlCmd::SendCmdData2(DWORD param, const T& val, CCmdStream* res)
 }
 
 template<class T>
-DWORD CSendCtrlCmd::SendCmdData3(DWORD param, const T& val, int* client_sock, CCmdStream* res)
+DWORD CSendCtrlCmd::SendCmdData3(DWORD param, const T& val, CCmdStream* res)
 {
 	CCmdStream cmd(param);
 	cmd.WriteVALUE(val);
-	return SendCmdStream(cmd, res, client_sock);
+	return SendCmdStream3(cmd, res);
+}
+template<class T>
+DWORD CSendCtrlCmd::SendCmdData4(DWORD param, const T& val, CCmdStream* res)
+{
+	WORD ver = CMD_VER;
+	CCmdStream cmd(param);
+	cmd.WriteVALUE2WithVersion(ver, val);
+	return SendCmdStream2(cmd, res);
 }
 
 template<class T>
@@ -941,5 +970,18 @@ DWORD CSendCtrlCmd::SendAndReceiveCmdData2(DWORD param, const T& val, U* resVal)
 	}
 	return ret;
 }
+template<class T, class U>
+DWORD CSendCtrlCmd::SendAndReceiveCmdData3(DWORD param, const T& val, U* resVal)
+{
+	CCmdStream res;
+	DWORD ret = SendCmdData4(param, val, &res);
 
+	if( ret == CMD_SUCCESS ){
+		WORD ver = 0;
+		if( !res.ReadVALUE2WithVersion(&ver, resVal) ){
+			ret = CMD_ERR;
+		}
+	}
+	return ret;
+}
 #endif
