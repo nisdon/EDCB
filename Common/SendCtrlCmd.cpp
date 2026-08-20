@@ -44,13 +44,13 @@ void CSendCtrlCmd::SetSendMode(
 {
 	if( this->tcpFlag == FALSE && tcpFlag_ ){
 #if defined(_WIN32)
-//		WSAData wsaData;
-//		WSAStartup(MAKEWORD(2, 2), &wsaData);
+		WSAData wsaData;
+		WSAStartup(MAKEWORD(2, 2), &wsaData);
 #endif
 		this->tcpFlag = TRUE;
 	}else if( this->tcpFlag && tcpFlag_ == FALSE ){
 #if defined(_WIN32)
-//		WSACleanup();
+		WSACleanup();
 #endif
 		this->tcpFlag = FALSE;
 	}
@@ -469,15 +469,22 @@ DWORD ReceiveCommandWithPoll(const CCmdStream& cmd, CCmdStream* res, int sock, i
 #endif
 }
 
+DWORD ReceiveChar(const char* cmd, int cmd_size, char* res, int res_size, int sock)
+{
+	//送信
+	if( send(sock, cmd, cmd_size, 0) != cmd_size )
+		return CMD_ERR;
+
+	//受信
+	if( RecvAll(sock, res, res_size, 0 ) != res_size )
+		return CMD_ERR;
+
+	return CMD_SUCCESS;
+}
 void WriteSocket(int sock)
 {
-#ifdef _WIN32
 	char val = 'x';
 	int ret = send(sock, &val, sizeof(val), 0);
-#else
-	uint64_t val = 1;
-	int ret = write(sock, &val, sizeof(val));
-#endif
 }
 void CloseSocket(int sock)
 {
@@ -570,6 +577,24 @@ DWORD CSendCtrlCmd::SendCmdStream3(const CCmdStream& cmd, CCmdStream* res)
 				CloseSocket(tmpSock);
 			}
 		}
+	}
+	return ret;
+}
+DWORD CSendCtrlCmd::SendCharStream(const wstring& ip,
+								   unsigned int port,
+								   unsigned int timeOut,
+								   const string& cmd,
+								   char* res,
+								   int res_size)
+{
+	DWORD ret = CMD_ERR;
+	int tmpSock;
+
+	ret = ConnectTCP(ip, port, timeOut, &tmpSock);
+	if(ret == CMD_SUCCESS)
+	{
+		ret = ReceiveChar(cmd.c_str(), cmd.size(), res, res_size, tmpSock);
+		CloseSocket(tmpSock);
 	}
 	return ret;
 }

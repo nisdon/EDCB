@@ -838,6 +838,7 @@ public:
 	int ReadRelay(char* buf, int len);
 	void CloseRelay();
 	void WriteWakeupFd();
+	DWORD SendCharStream(const wstring& ip, unsigned int port, unsigned int timeOut, const string& cmd, char* res, int char_size);
 
 private:
 	BOOL tcpFlag;
