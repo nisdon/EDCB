@@ -24,11 +24,18 @@ namespace EpgTimer
     {
         private List<ReserveViewItem> reserveList = new List<ReserveViewItem>();
         private bool updateReserveData = true;
-
+        private readonly Tuple<double, double> initialGridContainerDefinitionValues;
 
         public TunerReserveMainView()
         {
             InitializeComponent();
+            initialGridContainerDefinitionValues = new Tuple<double, double>(
+                grid_container.ColumnDefinitions[0].Width.Value,
+                grid_container.RowDefinitions[0].Height.Value);
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                grid_content.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
         }
 
         /// <summary>
@@ -53,14 +60,10 @@ namespace EpgTimer
         /// <param name="e"></param>
         void tunerReserveView_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            {
-                {
-                    //時間軸の表示もスクロール
-                    tunerReserveTimeView.scrollViewer.ScrollToVerticalOffset(tunerReserveView.scrollViewer.VerticalOffset);
-                    //サービス名表示もスクロール
-                    tunerReserveNameView.scrollViewer.ScrollToHorizontalOffset(tunerReserveView.scrollViewer.HorizontalOffset);
-                }
-            }
+            //時間軸の表示もスクロール
+            tunerReserveTimeView.scrollViewer.ScrollToVerticalOffset(tunerReserveView.scrollViewer.VerticalOffset);
+            //チューナー名表示もスクロール
+            tunerReserveNameView.scrollViewer.ScrollToHorizontalOffset(tunerReserveView.scrollViewer.HorizontalOffset);
         }
 
         /// <summary>
@@ -257,9 +260,12 @@ namespace EpgTimer
         /// <param name="e"></param>
         private void cm_timeShiftPlay_Click(object sender, RoutedEventArgs e)
         {
+            var reserve = (ReserveData)((MenuItem)sender).DataContext;
+            var errorMessage = CommonManager.Instance.FilePlay(reserve.ReserveID);
+            if (errorMessage != null)
             {
-                var reserve = (ReserveData)((MenuItem)sender).DataContext;
-                CommonManager.Instance.FilePlay(reserve.ReserveID);
+                popup_error.DataContext = errorMessage;
+                popup_error.IsOpen = true;
             }
         }
 
@@ -305,18 +311,25 @@ namespace EpgTimer
             win.Show();
         }
 
-        private void UserControl_Loaded(object sender, RoutedEventArgs e)
+        private void AlignTunerReserveViewPositionToDevicePixels()
         {
             var ps = PresentationSource.FromVisual(this);
             if (ps != null)
             {
                 //高DPI環境でTunerReserveViewの位置を物理ピクセルに合わせるためにヘッダの幅を微調整する
                 //RootにUseLayoutRoundingを適用できれば不要だがボタン等が低品質になるので自力でやる
-                Point p = grid_container.TransformToVisual(ps.RootVisual).Transform(new Point(40, 40));
+                Point p = grid_container.TransformToVisual(ps.RootVisual).Transform(new Point(
+                    initialGridContainerDefinitionValues.Item1,
+                    initialGridContainerDefinitionValues.Item2));
                 Matrix m = ps.CompositionTarget.TransformToDevice;
-                grid_container.ColumnDefinitions[0].Width = new GridLength(40 + Math.Floor(p.X * m.M11) / m.M11 - p.X);
-                grid_container.RowDefinitions[0].Height = new GridLength(40 + Math.Floor(p.Y * m.M22) / m.M22 - p.Y);
+                grid_container.ColumnDefinitions[0].Width = new GridLength(initialGridContainerDefinitionValues.Item1 + Math.Floor(p.X * m.M11) / m.M11 - p.X);
+                grid_container.RowDefinitions[0].Height = new GridLength(initialGridContainerDefinitionValues.Item2 + Math.Floor(p.Y * m.M22) / m.M22 - p.Y);
             }
+        }
+
+        private void UserControl_Loaded(object sender, RoutedEventArgs e)
+        {
+            AlignTunerReserveViewPositionToDevicePixels();
         }
 
         /// <summary>
@@ -325,7 +338,7 @@ namespace EpgTimer
         public void Refresh()
         {
             updateReserveData = true;
-            if (this.IsVisible == true)
+            if (IsVisible)
             {
                 ReloadReserveViewItem();
                 updateReserveData = false;
@@ -345,10 +358,11 @@ namespace EpgTimer
             reserveList.Clear();
             try
             {
+                EpgSetting epgSetting = Settings.Instance.EpgSettingList[0];
                 double leftPos = 0;
                 foreach (TunerReserveInfo info in CommonManager.Instance.DB.TunerReserveList.Values)
                 {
-                    double width = 150;
+                    double width = epgSetting.ServiceWidth;
                     int addOffset = reserveList.Count();
                     foreach (uint reserveID in info.reserveList)
                     {
@@ -373,12 +387,12 @@ namespace EpgTimer
                         }
 
                         var viewItem = new ReserveViewItem(reserveInfo);
-                        viewItem.Height = Math.Floor((endTime - startTime).TotalMinutes * Settings.Instance.EpgSettingList[0].MinHeight);
-                        if (viewItem.Height < Settings.Instance.EpgSettingList[0].MinHeight)
+                        viewItem.Height = Math.Floor((endTime - startTime).TotalMinutes * epgSetting.MinHeight);
+                        if (viewItem.Height < epgSetting.MinHeight)
                         {
-                            viewItem.Height = Settings.Instance.EpgSettingList[0].MinHeight;
+                            viewItem.Height = epgSetting.MinHeight;
                         }
-                        viewItem.Width = 150;
+                        viewItem.Width = epgSetting.ServiceWidth;
                         viewItem.LeftPos = leftPos;
 
                         for (int i = addOffset; i < reserveList.Count; i++)
@@ -408,7 +422,7 @@ namespace EpgTimer
                                 {
                                     //追加済みのものと重なるので移動して再チェック
                                     i = addOffset - 1;
-                                    viewItem.LeftPos += 150;
+                                    viewItem.LeftPos += epgSetting.ServiceWidth;
                                     width = Math.Max(width, viewItem.LeftPos + viewItem.Width - leftPos);
                                 }
                             }
@@ -455,21 +469,49 @@ namespace EpgTimer
                     int index = timeList.BinarySearch(chkStartTime);
                     if (index >= 0)
                     {
-                        item.TopPos = (index * 60 + (startTime - chkStartTime).TotalMinutes) * Settings.Instance.EpgSettingList[0].MinHeight;
+                        item.TopPos = (index * 60 + (startTime - chkStartTime).TotalMinutes) * epgSetting.MinHeight;
                     }
                 }
 
-                tunerReserveTimeView.SetTime(timeList, true);
-                tunerReserveNameView.SetTunerInfo(tunerList);
+                var timeBrushList = new List<Brush>();
+                for (int i = 0; i < epgSetting.TimeColorList.Count; i++)
+                {
+                    SolidColorBrush brush = ColorDef.CustColorBrush(epgSetting.TimeColorList[i], epgSetting.TimeCustColorList[i]);
+                    timeBrushList.Add(epgSetting.EpgGradationHeader ? (Brush)ColorDef.GradientBrush(brush.Color) : brush);
+                }
+                tunerReserveTimeView.SetTime(timeList, 60 * epgSetting.MinHeight, timeBrushList);
+
+                SolidColorBrush serviceBrush = ColorDef.CustColorBrush(epgSetting.ServiceColor, epgSetting.ServiceCustColor);
+                tunerReserveNameView.SetTunerInfo(tunerList,
+                    epgSetting.EpgGradationHeader ? (Brush)ColorDef.GradientBrush(serviceBrush.Color) : serviceBrush,
+                    ColorDef.GetLuminance(serviceBrush.Color) > 0.55);
                 tunerReserveView.SetReserveList(reserveList,
                     leftPos,
-                    timeList.Count * 60 * Settings.Instance.EpgSettingList[0].MinHeight);
+                    timeList.Count * 60 * epgSetting.MinHeight);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.ToString());
             }
         }
+
+#if PER_MONITOR_DPI
+        protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+        {
+            base.OnDpiChanged(oldDpi, newDpi);
+
+            //この段階では周辺オブジェクトの再配置が終わっていないため物理位置が変わるかもしれない
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+            {
+                AlignTunerReserveViewPositionToDevicePixels();
+                if (IsVisible)
+                {
+                    ReloadReserveViewItem();
+                    updateReserveData = false;
+                }
+            }));
+        }
+#endif
 
         private void UserControl_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {

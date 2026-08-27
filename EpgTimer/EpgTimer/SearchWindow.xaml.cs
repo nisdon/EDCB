@@ -30,6 +30,10 @@ namespace EpgTimer
         {
             InitializeComponent();
 
+            var style = (Style)listView_result.FindResource("itemStyle");
+            style.BasedOn = listView_result.ItemContainerStyle;
+            listView_result.ItemContainerStyle = style;
+
             try
             {
                 //ウインドウ位置の復元
@@ -52,6 +56,10 @@ namespace EpgTimer
             {
             }
             listView_result.AlternationCount = Settings.Instance.ResAlternationCount;
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                ((ContextMenu)listView_result.FindResource("itemMenu")).Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
         }
 
         public void SetSearchDefKey(EpgSearchKeyInfo key)

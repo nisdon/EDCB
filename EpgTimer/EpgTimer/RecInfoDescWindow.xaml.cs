@@ -83,6 +83,16 @@ namespace EpgTimer
                 }
             }
             richTextBox_pgInfo.Document = new FlowDocument(CommonManager.ConvertDisplayText(basicInfo, extText, propertyInfo));
+#if NETCOREAPP
+#pragma warning disable WPF0001
+            // (おそらくバグにより)フォントが継承されないため
+            if (Application.Current.ThemeMode != ThemeMode.None)
+            {
+                richTextBox_pgInfo.Document.FontFamily = richTextBox_pgInfo.FontFamily;
+                richTextBox_pgInfo.Document.FontSize = richTextBox_pgInfo.FontSize;
+            }
+#pragma warning restore WPF0001
+#endif
             pgInfoForProgramText = basicInfo + extText + propertyInfo;
             button_save_program.IsEnabled = pgInfoForProgramText.Length > 0;
             textBox_errLog.Text = info.ErrInfo;
@@ -133,7 +143,8 @@ namespace EpgTimer
 
                 if (destPath == null)
                 {
-                    MessageBox.Show("拡張子または移動先が不正です。", "", MessageBoxButton.OK, MessageBoxImage.Error);
+                    popup_rename.DataContext = "拡張子または移動先が不正です";
+                    popup_rename.IsOpen = true;
                     textBox_recFilePath.Text = recInfo.RecFilePath;
                 }
                 else
@@ -220,9 +231,11 @@ namespace EpgTimer
         {
             if (recInfo != null)
             {
-                if (recInfo.RecFilePath.Length > 0)
+                string errorMessage = CommonManager.Instance.FilePlay(recInfo.RecFilePath);
+                if (errorMessage != null)
                 {
-                    CommonManager.Instance.FilePlay(recInfo.RecFilePath);
+                    popup_play.DataContext = errorMessage;
+                    popup_play.IsOpen = true;
                 }
             }
         }
@@ -270,6 +283,8 @@ namespace EpgTimer
                         break;
                 }
             }
+            popup_rename.IsOpen = false;
+            popup_play.IsOpen = false;
         }
 
         private void button_cancel_Click(object sender, RoutedEventArgs e)

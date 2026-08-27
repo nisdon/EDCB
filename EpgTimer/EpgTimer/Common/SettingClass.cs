@@ -99,7 +99,11 @@ namespace EpgTimer
         {
             get
             {
+#if NETCOREAPP
+                return Path.GetDirectoryName(Environment.ProcessPath);
+#else
                 return Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+#endif
             }
         }
 
@@ -107,7 +111,11 @@ namespace EpgTimer
         {
             get
             {
+#if NETCOREAPP
+                return Path.GetFileName(Environment.ProcessPath);
+#else
                 return Path.GetFileName(Assembly.GetEntryAssembly().Location);
+#endif
             }
         }
     }
@@ -186,6 +194,8 @@ namespace EpgTimer
         public bool UseCustomEpgView { get; set; }
         public List<CustomEpgTabInfo> CustomEpgTabList { get; set; }
         public List<EpgSetting> EpgSettingList { get; set; }
+        public bool SynchronizeEpgScroll { get; set; }
+        public bool ToggleEpgModeOnHeaderLeftClick { get; set; }
         public bool NoToolTip { get; set; }
         public bool NoBallonTips { get; set; }
         public bool BalloonTipRealtime { get; set; }
@@ -245,6 +255,9 @@ namespace EpgTimer
         public bool NwTvModeUDP { get; set; }
         public bool NwTvModeTCP { get; set; }
         public bool NwTvModePipe { get; set; }
+        public bool UseWatchCmd { get; set; }
+        public string WatchCmd { get; set; }
+        public string WatchCmdOpt { get; set; }
         public bool FilePlay { get; set; }
         public string FilePlayExe { get; set; }
         public string FilePlayCmd { get; set; }
@@ -293,6 +306,9 @@ namespace EpgTimer
         public byte RecEndWarColorR { get; set; }
         public byte RecEndWarColorG { get; set; }
         public byte RecEndWarColorB { get; set; }
+        public bool SetAppFont { get; set; }
+        public string AppFontName { get; set; }
+        public double AppFontSize { get; set; }
         public uint ExecBat { get; set; }
         public uint SuspendChk { get; set; }
         public List<ListColumnInfo> ReserveListColumn { get; set; }
@@ -305,6 +321,7 @@ namespace EpgTimer
         public bool ShowTray { get; set; }
         public bool MinHide { get; set; }
         public int NoStyle { get; set; }
+        public bool ApplyPostStyle { get; set; }
         public bool ApplyContextMenuStyle { get; set; }
         public int NoSendClose { get; set; }
         public string StartTab { get; set; }
@@ -397,6 +414,8 @@ namespace EpgTimer
                     x.Add(xx);
                 }
             }
+            r.SynchronizeEpgScroll      = ConvertXElem(x, w, "SynchronizeEpgScroll", SynchronizeEpgScroll, false);
+            r.ToggleEpgModeOnHeaderLeftClick = ConvertXElem(x, w, "ToggleEpgModeOnHeaderLeftClick", ToggleEpgModeOnHeaderLeftClick, false);
             r.NoToolTip                 = ConvertXElem(x, w, "NoToolTip", NoToolTip, false);
             r.NoBallonTips              = ConvertXElem(x, w, "NoBallonTips", NoBallonTips, false);
             r.BalloonTipRealtime        = ConvertXElem(x, w, "BalloonTipRealtime", BalloonTipRealtime, false);
@@ -462,6 +481,9 @@ namespace EpgTimer
             r.NwTvModeUDP               = ConvertXElem(x, w, "NwTvModeUDP", NwTvModeUDP, false);
             r.NwTvModeTCP               = ConvertXElem(x, w, "NwTvModeTCP", NwTvModeTCP, false);
             r.NwTvModePipe              = ConvertXElem(x, w, "NwTvModePipe", NwTvModePipe, false);
+            r.UseWatchCmd               = ConvertXElem(x, w, "UseWatchCmd", UseWatchCmd, false);
+            r.WatchCmd                  = ConvertXElem(x, w, "WatchCmd", WatchCmd, "");
+            r.WatchCmdOpt               = ConvertXElem(x, w, "WatchCmdOpt", WatchCmdOpt, "");
             r.FilePlay                  = ConvertXElem(x, w, "FilePlay", FilePlay, true);
             r.FilePlayExe               = ConvertXElem(x, w, "FilePlayExe", FilePlayExe, "");
             r.FilePlayCmd               = ConvertXElem(x, w, "FilePlayCmd", FilePlayCmd, "\"$FilePath$\"");
@@ -510,6 +532,9 @@ namespace EpgTimer
             r.RecEndWarColorR           = (byte)ConvertXElem(x, w, "RecEndWarColorR", RecEndWarColorR, 0xFF);
             r.RecEndWarColorG           = (byte)ConvertXElem(x, w, "RecEndWarColorG", RecEndWarColorG, 0xFF);
             r.RecEndWarColorB           = (byte)ConvertXElem(x, w, "RecEndWarColorB", RecEndWarColorB, 0);
+            r.SetAppFont                = ConvertXElem(x, w, "SetAppFont", SetAppFont, false);
+            r.AppFontName               = ConvertXElem(x, w, "AppFontName", AppFontName, "メイリオ");
+            r.AppFontSize               = ConvertXElem(x, w, "AppFontSize", AppFontSize, 12);
             r.ExecBat                   = (uint)ConvertXElem(x, w, "ExecBat", ExecBat, 0);
             r.SuspendChk                = (uint)ConvertXElem(x, w, "SuspendChk", SuspendChk, 0);
             r.ReserveListColumn         = ConvertXElements(x, w, "ReserveListColumn", ReserveListColumn).ToList();
@@ -522,6 +547,7 @@ namespace EpgTimer
             r.ShowTray                  = ConvertXElem(x, w, "ShowTray", ShowTray, false);
             r.MinHide                   = ConvertXElem(x, w, "MinHide", MinHide, true);
             r.NoStyle                   = (int)ConvertXElem(x, w, "NoStyle", NoStyle, 1);
+            r.ApplyPostStyle            = ConvertXElem(x, w, "ApplyPostStyle", ApplyPostStyle, false);
             r.ApplyContextMenuStyle     = ConvertXElem(x, w, "ApplyContextMenuStyle", ApplyContextMenuStyle, false);
             r.NoSendClose               = (int)ConvertXElem(x, w, "NoSendClose", NoSendClose, 0);
             r.StartTab                  = ConvertXElem(x, w, "StartTab", StartTab, "ReserveView");
@@ -604,42 +630,6 @@ namespace EpgTimer
                     _brushCache = new SettingsBrushCache();
                 }
                 return _brushCache;
-            }
-        }
-
-        private static bool appResourceDictionaryInitialized;
-        private static ResourceDictionary _appResourceDictionary;
-        public static ResourceDictionary AppResourceDictionary
-        {
-            get
-            {
-                if (appResourceDictionaryInitialized == false)
-                {
-                    appResourceDictionaryInitialized = true;
-                    if (Instance.NoStyle == 0)
-                    {
-                        try
-                        {
-                            string path = Path.Combine(SettingPath.ModulePath, SettingPath.ModuleName + ".rd.xaml");
-                            if (File.Exists(path))
-                            {
-                                //ResourceDictionaryを定義したファイルがあるので本体にマージする
-                                _appResourceDictionary = (ResourceDictionary)System.Windows.Markup.XamlReader.Load(System.Xml.XmlReader.Create(path));
-                            }
-                            else
-                            {
-                                //既定のテーマ(Aero)をマージする
-                                _appResourceDictionary = (ResourceDictionary)Application.LoadComponent(
-                                    new Uri("/PresentationFramework.Aero, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35;component/themes/aero.normalcolor.xaml", UriKind.Relative));
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show(ex.ToString());
-                        }
-                    }
-                }
-                return _appResourceDictionary;
             }
         }
 

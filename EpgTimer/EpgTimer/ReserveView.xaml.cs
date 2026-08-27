@@ -32,6 +32,10 @@ namespace EpgTimer
         {
             InitializeComponent();
 
+            var style = (Style)listView_reserve.FindResource("itemStyle");
+            style.BasedOn = listView_reserve.ItemContainerStyle;
+            listView_reserve.ItemContainerStyle = style;
+
             columnList = gridView_reserve.Columns.ToDictionary(info => (string)((GridViewColumnHeader)info.Header).Tag);
             gridView_reserve.Columns.Clear();
             foreach (ListColumnInfo info in Settings.Instance.ReserveListColumn)
@@ -47,6 +51,11 @@ namespace EpgTimer
                 stackPanel_button.Visibility = Visibility.Collapsed;
             }
             listView_reserve.AlternationCount = Settings.Instance.ResAlternationCount;
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                listView_reserve.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+                ((ContextMenu)FindResource("itemMenu")).Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
         }
 
 
@@ -297,8 +306,14 @@ namespace EpgTimer
         {
             if (listView_reserve.SelectedItem != null)
             {
-                ReserveItem info = listView_reserve.SelectedItem as ReserveItem;
-                CommonManager.Instance.FilePlay(info.ReserveInfo.ReserveID);
+                var item = (ReserveItem)listView_reserve.SelectedItem;
+                string errorMessage = CommonManager.Instance.FilePlay(item.ID);
+                if (errorMessage != null)
+                {
+                    popup_error.DataContext = errorMessage;
+                    popup_error.PlacementTarget = sender as Button ?? listView_reserve.ItemContainerGenerator.ContainerFromItem(item) as UIElement ?? listView_reserve;
+                    popup_error.IsOpen = true;
+                }
             }
         }
 
@@ -342,6 +357,11 @@ namespace EpgTimer
                 ReDrawReserveData();
                 RedrawReserve = false;
             }
+        }
+
+        private void UserControl_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            popup_error.IsOpen = false;
         }
 
         private void ContextMenu_Header_ContextMenuOpening(object sender, ContextMenuEventArgs e)

@@ -31,6 +31,11 @@ namespace EpgTimer
         public EpgAutoAddView()
         {
             InitializeComponent();
+
+            var style = (Style)listView_key.FindResource("itemStyle");
+            style.BasedOn = listView_key.ItemContainerStyle;
+            listView_key.ItemContainerStyle = style;
+
             columnList = gridView_key.Columns.ToDictionary(info => (string)((GridViewColumnHeader)info.Header).Tag);
             gridView_key.Columns.Clear();
             foreach (ListColumnInfo info in Settings.Instance.AutoAddEpgColumn)
@@ -46,6 +51,11 @@ namespace EpgTimer
                 stackPanel_button.Visibility = Visibility.Collapsed;
             }
             listView_key.AlternationCount = Settings.Instance.ResAlternationCount;
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                listView_key.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+                ((ContextMenu)FindResource("itemMenu")).Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
         }
 
         public void SaveSize()

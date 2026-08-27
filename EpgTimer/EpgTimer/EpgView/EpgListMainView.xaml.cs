@@ -42,9 +42,19 @@ namespace EpgTimer
         {
             InitializeComponent();
 
+            var style = (Style)listView_event.FindResource("itemStyle");
+            style.BasedOn = listView_event.ItemContainerStyle;
+            listView_event.ItemContainerStyle = style;
+
             setViewInfo = setInfo;
             baseTime = _baseTime;
             listView_event.AlternationCount = Settings.Instance.ResAlternationCount;
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                button_prev.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+                button_next.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+                listView_event.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
         }
 
         /// <summary>
@@ -478,6 +488,16 @@ namespace EpgTimer
                     CommonManager.ConvertProgramText(item.EventInfo, EventInfoTextMode.BasicText),
                     CommonManager.ConvertProgramText(item.EventInfo, EventInfoTextMode.ExtendedText),
                     CommonManager.ConvertProgramText(item.EventInfo, EventInfoTextMode.PropertyInfo)));
+#if NETCOREAPP
+#pragma warning disable WPF0001
+                //(おそらくバグにより)フォントが継承されないため
+                if (Application.Current.ThemeMode != ThemeMode.None)
+                {
+                    richTextBox_eventInfo.Document.FontFamily = richTextBox_eventInfo.FontFamily;
+                    richTextBox_eventInfo.Document.FontSize = richTextBox_eventInfo.FontSize;
+                }
+#pragma warning restore WPF0001
+#endif
             }
         }
 
@@ -828,13 +848,17 @@ namespace EpgTimer
 
         private void cm_timeShiftPlay_Click(object sender, RoutedEventArgs e)
         {
+            if (listView_event.SelectedItem != null)
             {
-                if (listView_event.SelectedItem != null)
+                SearchItem item = listView_event.SelectedItem as SearchItem;
+                if (item.IsReserved)
                 {
-                    SearchItem item = listView_event.SelectedItem as SearchItem;
-                    if (item.IsReserved == true)
+                    var errorMessage = CommonManager.Instance.FilePlay(item.ReserveInfo.ReserveID);
+                    if (errorMessage != null)
                     {
-                        CommonManager.Instance.FilePlay(item.ReserveInfo.ReserveID);
+                        popup_error.DataContext = errorMessage;
+                        popup_error.PlacementTarget = listView_event.ItemContainerGenerator.ContainerFromItem(item) as UIElement ?? listView_event;
+                        popup_error.IsOpen = true;
                     }
                 }
             }
@@ -970,6 +994,11 @@ namespace EpgTimer
                     updateEpgData = false;
                 }
             }
+        }
+
+        private void UserControl_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            popup_error.IsOpen = false;
         }
     }
 }

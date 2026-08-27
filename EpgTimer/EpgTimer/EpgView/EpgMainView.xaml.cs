@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Windows;
@@ -36,6 +37,7 @@ namespace EpgTimer
 
         private bool updateEpgData = true;
         private bool updateReserveData = true;
+        private readonly Tuple<double, double, double> initialGridPGDefinitionValues;
 
         public EpgMainView(CustomEpgTabInfo setInfo, DateTime _baseTime)
         {
@@ -46,6 +48,14 @@ namespace EpgTimer
             setViewInfo = setInfo;
             epgProgramView.EpgSetting = setInfo.EpgSetting;
             baseTime = _baseTime;
+            initialGridPGDefinitionValues = new Tuple<double, double, double>(
+                grid_PG.ColumnDefinitions[0].Width.Value,
+                grid_PG.RowDefinitions[0].Height.Value,
+                grid_PG.RowDefinitions[1].Height.Value);
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                grid_content.ContextMenu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
         }
 
         /// <summary>
@@ -80,6 +90,7 @@ namespace EpgTimer
         private void ReDrawNowLine()
         {
             nowViewTimer.Stop();
+            dateView.SetTodayMark();
             if (timeList.Count == 0 || baseTime < CommonManager.Instance.DB.EventBaseTime)
             {
                 epgProgramView.nowLine.Visibility = Visibility.Hidden;
@@ -121,14 +132,11 @@ namespace EpgTimer
         /// <param name="e"></param>
         void epgProgramView_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            {
-                {
-                    //時間軸の表示もスクロール
-                    timeView.scrollViewer.ScrollToVerticalOffset(epgProgramView.scrollViewer.VerticalOffset);
-                    //サービス名表示もスクロール
-                    serviceView.scrollViewer.ScrollToHorizontalOffset(epgProgramView.scrollViewer.HorizontalOffset);
-                }
-            }
+            dateView.SetScrollTime(ScrollTime().AddMinutes(Math.Min(Math.Max(100 / setViewInfo.EpgSetting.MinHeight, 0), 120)));
+            //時間軸の表示もスクロール
+            timeView.scrollViewer.ScrollToVerticalOffset(epgProgramView.scrollViewer.VerticalOffset);
+            //サービス名表示もスクロール
+            serviceView.scrollViewer.ScrollToHorizontalOffset(epgProgramView.scrollViewer.HorizontalOffset);
         }
 
         /// <summary>
@@ -429,9 +437,12 @@ namespace EpgTimer
         /// <param name="e"></param>
         private void cm_timeShiftPlay_Click(object sender, RoutedEventArgs e)
         {
+            ReserveData reserve = ((Tuple<ReserveData, ProgramViewItem>)((MenuItem)sender).DataContext).Item1;
+            var errorMessage = CommonManager.Instance.FilePlay(reserve.ReserveID);
+            if (errorMessage != null)
             {
-                ReserveData reserve = ((Tuple<ReserveData, ProgramViewItem>)((MenuItem)sender).DataContext).Item1;
-                CommonManager.Instance.FilePlay(reserve.ReserveID);
+                popup_error.DataContext = errorMessage;
+                popup_error.IsOpen = true;
             }
         }
 
@@ -573,21 +584,30 @@ namespace EpgTimer
         }
 
         /// <summary>
+        /// スクロール位置の日時
+        /// </summary>
+        public DateTime ScrollTime()
+        {
+            if (timeList.Count == 0)
+            {
+                return ActualBaseTime();
+            }
+            double hours = epgProgramView.scrollViewer.VerticalOffset / (60 * setViewInfo.EpgSetting.MinHeight);
+            int index = Math.Min(Math.Max((int)hours, 0), timeList.Count - 1);
+            return timeList.Keys[index] + TimeSpan.FromHours(Math.Min(Math.Max(hours - index, 0), 1));
+        }
+
+        /// <summary>
         /// 表示する週を移動する
         /// </summary>
         private bool MoveTime(DateTime time)
         {
+            double offsetHours = (ScrollTime() - ActualBaseTime()).TotalHours;
             DateTime lastTime = baseTime;
             baseTime = time < CommonManager.Instance.DB.EventBaseTime ? time : DateTime.MaxValue;
-            TimeSpan lastOffsetTime = TimeSpan.Zero;
-            if (timeList.Count > 0)
-            {
-                int index = Math.Max((int)(epgProgramView.scrollViewer.VerticalOffset / (60 * setViewInfo.EpgSetting.MinHeight)), 0);
-                index = Math.Min(index, timeList.Count - 1);
-                lastOffsetTime = TimeSpan.FromDays((int)timeList.Keys[index].DayOfWeek) + timeList.Keys[index].TimeOfDay;
-            }
             if (ReloadEpgData())
             {
+                MoveNowTime(false);
                 updateEpgData = false;
                 ReloadReserveViewItem();
                 updateReserveData = false;
@@ -596,13 +616,14 @@ namespace EpgTimer
                 {
                     for (int i = 0; i <= timeList.Count; i++)
                     {
-                        if (i == timeList.Count || TimeSpan.FromDays((int)timeList.Keys[i].DayOfWeek) + timeList.Keys[i].TimeOfDay >= lastOffsetTime)
+                        if (i == timeList.Count || timeList.Keys[i] - ActualBaseTime() >= TimeSpan.FromHours(Math.Floor(offsetHours)))
                         {
-                            epgProgramView.scrollViewer.ScrollToVerticalOffset(Math.Max(i * 60 * setViewInfo.EpgSetting.MinHeight, 0));
+                            epgProgramView.scrollViewer.ScrollToVerticalOffset(Math.Ceiling((i + offsetHours % 1) * 60 * setViewInfo.EpgSetting.MinHeight));
                             break;
                         }
                     }
                 }
+                dateView.SetScrollTime(ScrollTime().AddMinutes(Math.Min(Math.Max(100 / setViewInfo.EpgSetting.MinHeight, 0), 120)));
                 return true;
             }
             baseTime = lastTime;
@@ -672,13 +693,38 @@ namespace EpgTimer
         /// </summary>
         void serviceView_LeftDoubleClick(EpgServiceInfo info)
         {
-            CommonManager.Instance.TVTestCtrl.SetLiveCh(info.ONID, info.TSID, info.SID);
+            if (Settings.Instance.UseWatchCmd == false)
+            {
+                CommonManager.Instance.TVTestCtrl.SetLiveCh(info.ONID, info.TSID, info.SID);
+            }
+            else if (Settings.Instance.WatchCmd.Length > 0)
+            {
+                var cmdLine = new string[] { Settings.Instance.WatchCmd, Settings.Instance.WatchCmdOpt };
+                for (int i = 0; i < 2; i++)
+                {
+                    cmdLine[i] = cmdLine[i]
+                        .Replace("$ONID10$", info.ONID.ToString())
+                        .Replace("$ONID16$", info.ONID.ToString("X4"))
+                        .Replace("$TSID10$", info.TSID.ToString())
+                        .Replace("$TSID16$", info.TSID.ToString("X4"))
+                        .Replace("$SID10$", info.SID.ToString())
+                        .Replace("$SID16$", info.SID.ToString("X4"));
+                }
+                try
+                {
+                    using (Process.Start(new ProcessStartInfo(cmdLine[0], cmdLine[1]) { UseShellExecute = true })) { }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.ToString());
+                }
+            }
         }
 
         /// <summary>
-        /// サービス右ボタンクリック
+        /// サービス左or右クリック
         /// </summary>
-        void serviceView_RightClick(EpgServiceInfo info)
+        void serviceView_Click(EpgServiceInfo info)
         {
             if (ViewModeChangeRequested != null)
             {
@@ -733,30 +779,31 @@ namespace EpgTimer
                     return;
                 }
             }
-            DateTime now = DateTime.UtcNow.AddHours(9);
-            for (int i = 0; i < timeList.Count; i++)
+            if (epgProgramView.nowLine.Visibility == Visibility.Visible)
             {
-                if (now <= timeList.Keys[i])
-                {
-                    double pos = Math.Max((i - 1) * 60 * setViewInfo.EpgSetting.MinHeight - 100, 0);
-                    epgProgramView.scrollViewer.ScrollToVerticalOffset(Math.Ceiling(pos));
-                    break;
-                }
+                epgProgramView.scrollViewer.ScrollToVerticalOffset(epgProgramView.nowLine.Y1 - 100);
             }
         }
 
-        private void UserControl_Loaded(object sender, RoutedEventArgs e)
+        private void AlignProgramViewPositionToDevicePixels()
         {
             var ps = PresentationSource.FromVisual(this);
             if (ps != null)
             {
                 //高DPI環境でProgramViewの位置を物理ピクセルに合わせるためにヘッダの幅を微調整する
                 //RootにUseLayoutRoundingを適用できれば不要だがボタン等が低品質になるので自力でやる
-                Point p = grid_PG.TransformToVisual(ps.RootVisual).Transform(new Point(40, 80));
+                Point p = grid_PG.TransformToVisual(ps.RootVisual).Transform(new Point(
+                    initialGridPGDefinitionValues.Item1,
+                    initialGridPGDefinitionValues.Item2 + initialGridPGDefinitionValues.Item3));
                 Matrix m = ps.CompositionTarget.TransformToDevice;
-                grid_PG.ColumnDefinitions[0].Width = new GridLength(40 + Math.Floor(p.X * m.M11) / m.M11 - p.X);
-                grid_PG.RowDefinitions[1].Height = new GridLength(40 + Math.Floor(p.Y * m.M22) / m.M22 - p.Y);
+                grid_PG.ColumnDefinitions[0].Width = new GridLength(initialGridPGDefinitionValues.Item1 + Math.Floor(p.X * m.M11) / m.M11 - p.X);
+                grid_PG.RowDefinitions[1].Height = new GridLength(initialGridPGDefinitionValues.Item3 + Math.Floor(p.Y * m.M22) / m.M22 - p.Y);
             }
+        }
+
+        private void UserControl_Loaded(object sender, RoutedEventArgs e)
+        {
+            AlignProgramViewPositionToDevicePixels();
         }
 
         private bool ReloadEpgData()
@@ -778,7 +825,6 @@ namespace EpgTimer
                 if (err == ErrCode.CMD_SUCCESS)
                 {
                     ReloadProgramViewItem(list, ActualBaseTime() > CommonManager.Instance.DB.EventMinTime, baseTime < CommonManager.Instance.DB.EventBaseTime);
-                    MoveNowTime(false);
                     return true;
                 }
                 if (IsVisible && err != ErrCode.CMD_ERR_BUSY)
@@ -798,8 +844,9 @@ namespace EpgTimer
             updateEpgData = true;
             if (IsVisible || (Settings.Instance.NgAutoEpgLoadNW == false && Settings.Instance.PrebuildEpg))
             {
-                if (ReloadEpgData() == true)
+                if (ReloadEpgData())
                 {
+                    MoveNowTime(false);
                     updateEpgData = false;
                     ReloadReserveViewItem();
                     updateReserveData = false;
@@ -828,7 +875,7 @@ namespace EpgTimer
         public void RefreshReserve()
         {
             updateReserveData = true;
-            if (this.IsVisible == true)
+            if (IsVisible)
             {
                 ReloadReserveViewItem();
                 updateReserveData = false;
@@ -1307,7 +1354,8 @@ namespace EpgTimer
                 SolidColorBrush serviceBrush = ColorDef.CustColorBrush(setViewInfo.EpgSetting.ServiceColor, setViewInfo.EpgSetting.ServiceCustColor);
                 serviceView.SetService(primeServiceList, setViewInfo.EpgSetting.ServiceWidth,
                                        setViewInfo.EpgSetting.EpgGradationHeader ? (Brush)ColorDef.GradientBrush(serviceBrush.Color) : serviceBrush,
-                                       ColorDef.GetLuminance(serviceBrush.Color) > 0.55 ? Brushes.Black : Brushes.White);
+                                       ColorDef.GetLuminance(serviceBrush.Color) > 0.55,
+                                       Settings.Instance.ToggleEpgModeOnHeaderLeftClick);
 
                 ReDrawNowLine();
             }
@@ -1317,12 +1365,32 @@ namespace EpgTimer
             }
         }
 
+#if PER_MONITOR_DPI
+        protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+        {
+            base.OnDpiChanged(oldDpi, newDpi);
+
+            //この段階では周辺オブジェクトの再配置が終わっていないため物理位置が変わるかもしれない
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+            {
+                AlignProgramViewPositionToDevicePixels();
+                if (IsVisible && ReloadEpgData())
+                {
+                    updateEpgData = false;
+                    ReloadReserveViewItem();
+                    updateReserveData = false;
+                }
+            }));
+        }
+#endif
+
         private void UserControl_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            if (this.IsVisible == false) { return; }
+            if (IsVisible == false) { return; }
 
             if (updateEpgData && ReloadEpgData())
             {
+                MoveNowTime(false);
                 updateEpgData = false;
                 ReloadReserveViewItem();
                 updateReserveData = false;
@@ -1349,15 +1417,35 @@ namespace EpgTimer
                 Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() => scrollToTarget = null));
                 return;
             }
+            if (target is DateTime)
+            {
+                //指定日時に移動
+                DateTime time = ActualBaseTime();
+                time += TimeSpan.FromDays(((DateTime)target - time - ((DateTime)target < time ? TimeSpan.FromDays(7) - TimeSpan.FromTicks(1) : TimeSpan.Zero)).Days / 7 * 7);
+                time = time < CommonManager.Instance.DB.EventBaseTime ? time : CommonManager.Instance.DB.EventBaseTime;
+                if (ActualBaseTime() == time || MoveTime(time))
+                {
+                    double offsetHours = ((DateTime)target - time).TotalHours;
+                    for (int i = 0; i <= timeList.Count; i++)
+                    {
+                        if (i == timeList.Count || timeList.Keys[i] - ActualBaseTime() >= TimeSpan.FromHours(Math.Floor(offsetHours)))
+                        {
+                            epgProgramView.scrollViewer.ScrollToVerticalOffset(Math.Ceiling((i + offsetHours % 1) * 60 * setViewInfo.EpgSetting.MinHeight));
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
             MoveNowTime(moveBaseTime);
             if (target is ReserveData)
             {
-                foreach (ReserveViewItem reserveViewItem1 in this.reserveList)
+                foreach (ReserveViewItem item in reserveList)
                 {
-                    if (reserveViewItem1.ReserveInfo.ReserveID == ((ReserveData)target).ReserveID)
+                    if (item.ReserveInfo.ReserveID == ((ReserveData)target).ReserveID)
                     {
-                        this.epgProgramView.scrollViewer.ScrollToHorizontalOffset(reserveViewItem1.LeftPos - 100);
-                        this.epgProgramView.scrollViewer.ScrollToVerticalOffset(reserveViewItem1.TopPos - 100);
+                        epgProgramView.scrollViewer.ScrollToHorizontalOffset(item.LeftPos - 100);
+                        epgProgramView.scrollViewer.ScrollToVerticalOffset(item.TopPos - 100);
                         break;
                     }
                 }
@@ -1365,9 +1453,9 @@ namespace EpgTimer
             else if (target is EpgEventInfo)
             {
                 var info = (EpgEventInfo)target;
-                for (int i = 0; i < this.timeList.Count; i++)
+                for (int i = 0; i < timeList.Count; i++)
                 {
-                    foreach (ProgramViewItem item in this.timeList.Values[i])
+                    foreach (ProgramViewItem item in timeList.Values[i])
                     {
                         if (item.EventInfo.original_network_id == info.original_network_id &&
                             item.EventInfo.transport_stream_id == info.transport_stream_id &&
@@ -1375,9 +1463,9 @@ namespace EpgTimer
                             (item.Past ? item.EventInfo.StartTimeFlag != 0 && info.StartTimeFlag != 0 && item.EventInfo.start_time == info.start_time :
                                          item.EventInfo.event_id == info.event_id))
                         {
-                            this.epgProgramView.scrollViewer.ScrollToHorizontalOffset(item.LeftPos - 100);
-                            this.epgProgramView.scrollViewer.ScrollToVerticalOffset(item.TopPos - 100);
-                            i = this.timeList.Count - 1;
+                            epgProgramView.scrollViewer.ScrollToHorizontalOffset(item.LeftPos - 100);
+                            epgProgramView.scrollViewer.ScrollToVerticalOffset(item.TopPos - 100);
+                            i = timeList.Count - 1;
                             break;
                         }
                     }

@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
@@ -10,7 +12,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Threading; //紅
 
@@ -32,7 +33,11 @@ namespace EpgTimer
 
         public MainWindow()
         {
-            string appName = System.IO.Path.GetFileNameWithoutExtension(SettingPath.ModuleName);
+#if NETCOREAPP
+            //Encoding.GetEncoding()でCP932を使うため
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+#endif
+            string appName = Path.GetFileNameWithoutExtension(SettingPath.ModuleName);
             CommonManager.Instance.NWMode = appName.StartsWith("EpgTimerNW", StringComparison.OrdinalIgnoreCase);
 
             Settings.LoadFromXmlFile(CommonManager.Instance.NWMode);
@@ -50,10 +55,78 @@ namespace EpgTimer
                 Environment.Exit(0);
             }
 
-            if (Settings.AppResourceDictionary != null)
+#if NETCOREAPP
+#pragma warning disable WPF0001
+            if (Application.Current.ThemeMode != ThemeMode.None)
             {
-                Application.Current.Resources.MergedDictionaries.Add(Settings.AppResourceDictionary);
+                //アプリのResourceDictionaryをFluent用のものに置き換える
+                Application.Current.Resources.MergedDictionaries.Remove(
+                    Application.Current.Resources.MergedDictionaries.First(a => a.Source != null && a.Source.OriginalString == "/App.rd.xaml"));
+                Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(new Uri("/AppFluent.rd.xaml", UriKind.Relative)));
             }
+            else
+#pragma warning restore WPF0001
+#endif
+            if (Settings.Instance.NoStyle == 0)
+            {
+                //アプリのResourceDictionaryをクリア
+                Application.Current.Resources.MergedDictionaries.Clear();
+                try
+                {
+                    string path = Path.Combine(SettingPath.ModulePath, SettingPath.ModuleName + ".rd.xaml");
+                    if (File.Exists(path))
+                    {
+                        //ResourceDictionaryを定義したファイルがあるので本体にマージする
+                        Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Load(System.Xml.XmlReader.Create(path)));
+                    }
+                    else
+                    {
+                        //既定のテーマ(Aero)をマージする
+                        Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(
+                            new Uri("/PresentationFramework.Aero, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35;component/themes/aero.normalcolor.xaml", UriKind.Relative)));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.ToString());
+                }
+                //アプリのResourceDictionaryをここでマージ
+                Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(new Uri("/App.rd.xaml", UriKind.Relative)));
+            }
+
+            if (Settings.Instance.ApplyPostStyle)
+            {
+                try
+                {
+                    string path = Path.Combine(SettingPath.ModulePath, SettingPath.ModuleName + ".rdpost.xaml");
+                    if (File.Exists(path))
+                    {
+                        //上書き用のResourceDictionaryをマージ
+                        Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Load(System.Xml.XmlReader.Create(path)));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.ToString());
+                }
+            }
+
+            var rd = new ResourceDictionary();
+            var style = new Style(typeof(Window), (Style)FindResource("AppWindowStyle"));
+            double fontSize = (double)FindResource("AppFontSize");
+            double largeFontSize = (double)FindResource("AppLargeFontSize");
+            if (Settings.Instance.SetAppFont)
+            {
+                //フォントを上書き
+                style.Setters.Add(new Setter(FontFamilyProperty, new FontFamily(Settings.Instance.AppFontName)));
+                largeFontSize += Settings.Instance.AppFontSize - fontSize;
+                fontSize = Settings.Instance.AppFontSize;
+                rd.Add("AppFontSize", fontSize);
+                rd.Add("AppLargeFontSize", largeFontSize);
+            }
+            style.Setters.Add(new Setter(FontSizeProperty, fontSize));
+            rd.Add("AppWindowStyle", style);
+            Application.Current.Resources.MergedDictionaries.Add(rd);
 
             //オリジナルのmutex名をもつEpgTimerか
             if (mutexName == "2")
@@ -65,12 +138,12 @@ namespace EpgTimer
                 catch (WaitHandleCannotBeOpenedException)
                 {
                     //二重起動抑止Mutexが存在しないのでEpgTimerSrvがあれば起動する
-                    string exePath = System.IO.Path.Combine(SettingPath.ModulePath, "EpgTimerSrv.exe");
-                    if (System.IO.File.Exists(exePath))
+                    string exePath = Path.Combine(SettingPath.ModulePath, "EpgTimerSrv.exe");
+                    if (File.Exists(exePath))
                     {
                         try
                         {
-                            using (System.Diagnostics.Process.Start(exePath)) { }
+                            using (Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = false })) { }
                         }
                         catch
                         {
@@ -125,7 +198,7 @@ namespace EpgTimer
                 if (CommonManager.Instance.NWMode == false)
                 {
                     int pid;
-                    using (var process = System.Diagnostics.Process.GetCurrentProcess())
+                    using (var process = Process.GetCurrentProcess())
                     {
                         pid = process.Id;
                     }
@@ -230,7 +303,7 @@ namespace EpgTimer
                         byte[] binData;
                         if (cmd.SendFileCopy("ChSet5.txt", out binData) == ErrCode.CMD_SUCCESS)
                         {
-                            connected = ChSet5.LoadWithStreamReader(new System.IO.MemoryStream(binData));
+                            connected = ChSet5.LoadWithStreamReader(new MemoryStream(binData));
                             break;
                         }
                     }
@@ -246,7 +319,7 @@ namespace EpgTimer
             {
                 byte[] binData;
                 if (cmd.SendFileCopy("ChSet5.txt", out binData) != ErrCode.CMD_SUCCESS ||
-                    ChSet5.LoadWithStreamReader(new System.IO.MemoryStream(binData)) == false)
+                    ChSet5.LoadWithStreamReader(new MemoryStream(binData)) == false)
                 {
                     MessageBox.Show("EpgTimerSrvとの接続に失敗しました。");
                     return true;
@@ -258,9 +331,16 @@ namespace EpgTimer
 
         private void ResetButtonView()
         {
-            foreach (Button button in stackPanel_button.Children)
+            for (int i = 0; i < stackPanel_button.Children.Count; i++)
             {
-                button.Visibility = Visibility.Collapsed;
+                if (stackPanel_button.Children[i] is Button)
+                {
+                    stackPanel_button.Children[i].Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    stackPanel_button.Children.RemoveAt(i--);
+                }
             }
             for (int i = 0; i < tabControl_main.Items.Count; i++)
             {
@@ -271,16 +351,19 @@ namespace EpgTimer
                     i--;
                 }
             }
-            int space = 0;
             foreach (string info in Settings.Instance.ViewButtonList)
             {
                 if (info == "（空白）")
                 {
-                    space += 15;
+                    if (Settings.Instance.ViewButtonShowAsTab == false)
+                    {
+                        var separator = new FrameworkElement() { Width = (double)FindResource("AppMainWindowButtonSeparatorWidth") };
+                        stackPanel_button.Children.Add(separator);
+                    }
                 }
                 else
                 {
-                    var button = stackPanel_button.Children.Cast<Button>().FirstOrDefault(a => (string)(a.Tag ?? a.Content) == info);
+                    var button = stackPanel_button.Children.OfType<Button>().FirstOrDefault(a => (string)(a.Tag ?? a.Content) == info);
                     if (button != null)
                     {
                         if (info == "カスタム１")
@@ -316,18 +399,10 @@ namespace EpgTimer
                             //必要なボタンだけ可視化
                             stackPanel_button.Children.Remove(button);
                             stackPanel_button.Children.Add(button);
-                            button.Margin = new Thickness(space, button.Margin.Top, button.Margin.Right, button.Margin.Bottom);
                             button.Visibility = Visibility.Visible;
                         }
-                        space = 0;
                     }
                 }
-            }
-            if (Settings.Instance.ViewButtonList.Contains("検索") == false)
-            {
-                //検索ボタンは右端で動的に可視化することがある
-                var button = stackPanel_button.Children.Cast<Button>().First(a => (string)(a.Tag ?? a.Content) == "検索");
-                button.Margin = new Thickness(space, button.Margin.Top, button.Margin.Right, button.Margin.Bottom);
             }
         }
 
@@ -340,7 +415,11 @@ namespace EpgTimer
 
         public void TaskTrayRightClick()
         {
-            var menu = new ContextMenuEx();
+            var menu = new ContextMenu();
+            if (Settings.ContextMenuResourceDictionary != null)
+            {
+                menu.Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
+            }
             foreach (string info in Settings.Instance.TaskMenuList)
             {
                 if (info == "（セパレータ）")
@@ -503,7 +582,7 @@ namespace EpgTimer
                 {
                     var cmd = CommonManager.CreateSrvCtrl();
                     cmd.SetConnectTimeOut(3000);
-                    using (var process = System.Diagnostics.Process.GetCurrentProcess())
+                    using (var process = Process.GetCurrentProcess())
                     {
                         cmd.SendUnRegistGUI((uint)process.Id);
                     }
@@ -648,7 +727,7 @@ namespace EpgTimer
                     case Key.F:
                         if (e.IsRepeat == false)
                         {
-                            var button = stackPanel_button.Children.Cast<Button>().First(a => (string)(a.Tag ?? a.Content) == "検索");
+                            var button = stackPanel_button.Children.OfType<Button>().First(a => (string)(a.Tag ?? a.Content) == "検索");
                             button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         }
                         e.Handled = true;
@@ -707,6 +786,7 @@ namespace EpgTimer
                 if (setting.ShowDialog() == true)
                 {
                     epgView.UpdateSetting();
+                    tunerReserveView.Refresh();
                     loadLogoTimer.Start();
                     ResetButtonView();
                     taskTray.ForceHideBalloonTipSec = Settings.Instance.ForceHideBalloonTipSec;
@@ -874,7 +954,7 @@ namespace EpgTimer
         {
             try
             {
-                using (System.Diagnostics.Process.Start(Settings.Instance.Cust1BtnCmd, Settings.Instance.Cust1BtnCmdOpt)) { }
+                using (Process.Start(new ProcessStartInfo(Settings.Instance.Cust1BtnCmd, Settings.Instance.Cust1BtnCmdOpt) { UseShellExecute = true })) { }
             }
             catch (Exception ex)
             {
@@ -886,7 +966,7 @@ namespace EpgTimer
         {
             try
             {
-                using (System.Diagnostics.Process.Start(Settings.Instance.Cust2BtnCmd, Settings.Instance.Cust2BtnCmdOpt)) { }
+                using (Process.Start(new ProcessStartInfo(Settings.Instance.Cust2BtnCmd, Settings.Instance.Cust2BtnCmdOpt) { UseShellExecute = true })) { }
             }
             catch (Exception ex)
             {
@@ -920,7 +1000,7 @@ namespace EpgTimer
 
         private Tuple<ErrCode, byte[], uint> OutsideCmdCallback(uint cmdParam, byte[] cmdData, bool networkFlag, uint execBat)
         {
-            System.Diagnostics.Trace.WriteLine((CtrlCmd)cmdParam);
+            Trace.WriteLine((CtrlCmd)cmdParam);
             var res = new Tuple<ErrCode, byte[], uint>(ErrCode.CMD_NON_SUPPORT, null, 0);
 
             switch ((CtrlCmd)cmdParam)
@@ -938,14 +1018,15 @@ namespace EpgTimer
                         //原作では成否にかかわらずCMD_SUCCESSだったが、サーバ側の仕様と若干矛盾するので変更した
                         res = new Tuple<ErrCode, byte[], uint>(ErrCode.CMD_ERR, null, 0);
                         string exeCmd = "";
-                        (new CtrlCmdReader(new System.IO.MemoryStream(cmdData, false))).Read(ref exeCmd);
+                        (new CtrlCmdReader(new MemoryStream(cmdData, false))).Read(ref exeCmd);
                         if (exeCmd.Length > 0 && exeCmd[0] == '"')
                         {
                             //形式は("FileName")か("FileName" Arguments..)のどちらか。ほかは拒否してよい
                             int i = exeCmd.IndexOf('"', 1);
                             if (i >= 2 && (exeCmd.Length == i + 1 || exeCmd[i + 1] == ' '))
                             {
-                                var startInfo = new System.Diagnostics.ProcessStartInfo(exeCmd.Substring(1, i - 1));
+                                var startInfo = new ProcessStartInfo(exeCmd.Substring(1, i - 1));
+                                startInfo.UseShellExecute = true;
                                 if (exeCmd.Length > i + 2)
                                 {
                                     startInfo.Arguments = exeCmd.Substring(i + 2);
@@ -954,18 +1035,18 @@ namespace EpgTimer
                                 {
                                     if (execBat == 0)
                                     {
-                                        startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized;
+                                        startInfo.WindowStyle = ProcessWindowStyle.Minimized;
                                     }
                                     else if (execBat == 1)
                                     {
-                                        startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+                                        startInfo.WindowStyle = ProcessWindowStyle.Hidden;
                                     }
                                 }
                                 //FileNameは実行ファイルか.batのフルパス。チェックはしない(安全性云々はここで考えることではない)
                                 try
                                 {
                                     //ShellExecute相当なので.batなどもそのまま与える
-                                    using (var process = System.Diagnostics.Process.Start(startInfo))
+                                    using (var process = Process.Start(startInfo))
                                     {
                                         if (process != null)
                                         {
@@ -981,7 +1062,7 @@ namespace EpgTimer
                                                 sec.Persist(process.Handle);
                                             }
                                             catch { }
-                                            var w = new CtrlCmdWriter(new System.IO.MemoryStream());
+                                            var w = new CtrlCmdWriter(new MemoryStream());
                                             w.Write(process.Id);
                                             w.Stream.Close();
                                             res = new Tuple<ErrCode, byte[], uint>(ErrCode.CMD_SUCCESS, w.Stream.ToArray(), 0);
@@ -999,7 +1080,7 @@ namespace EpgTimer
                         res = new Tuple<ErrCode, byte[], uint>(ErrCode.CMD_SUCCESS, null, 0);
 
                         ushort param = 0;
-                        (new CtrlCmdReader(new System.IO.MemoryStream(cmdData, false))).Read(ref param);
+                        (new CtrlCmdReader(new MemoryStream(cmdData, false))).Read(ref param);
 
                         Dispatcher.BeginInvoke(new Action(() => ShowSleepDialog(param)));
                     }
@@ -1010,7 +1091,7 @@ namespace EpgTimer
                         res = new Tuple<ErrCode, byte[], uint>(ErrCode.CMD_SUCCESS, null, 0);
 
                         ushort param = 0;
-                        (new CtrlCmdReader(new System.IO.MemoryStream(cmdData, false))).Read(ref param);
+                        (new CtrlCmdReader(new MemoryStream(cmdData, false))).Read(ref param);
 
                         byte reboot = (byte)((param & 0xFF00) >> 8);
                         byte suspendMode = (byte)(param & 0x00FF);
@@ -1029,7 +1110,7 @@ namespace EpgTimer
                 case CtrlCmd.CMD_TIMER_GUI_SRV_STATUS_NOTIFY2:
                     {
                         NotifySrvInfo status = new NotifySrvInfo();
-                        var r = new CtrlCmdReader(new System.IO.MemoryStream(cmdData, false));
+                        var r = new CtrlCmdReader(new MemoryStream(cmdData, false));
                         ushort version = 0;
                         r.Read(ref version);
                         r.Version = version;
@@ -1069,7 +1150,7 @@ namespace EpgTimer
 
         void NotifyStatus(NotifySrvInfo status)
         {
-            System.Diagnostics.Trace.WriteLine((UpdateNotifyItem)status.notifyID);
+            Trace.WriteLine((UpdateNotifyItem)status.notifyID);
 
             switch ((UpdateNotifyItem)status.notifyID)
             {
@@ -1283,20 +1364,6 @@ namespace EpgTimer
                         Activate();
                     }
                 };
-            }
-        }
-    }
-
-    /// <summary>
-    /// アプリケーション全体に適用する拡張コンテキストメニュー
-    /// </summary>
-    public class ContextMenuEx : ContextMenu
-    {
-        public ContextMenuEx()
-        {
-            if (Settings.ContextMenuResourceDictionary != null)
-            {
-                Resources.MergedDictionaries.Add(Settings.ContextMenuResourceDictionary);
             }
         }
     }
