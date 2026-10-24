@@ -4,7 +4,7 @@
 
 #ifdef _WIN32
 // wprintf関数系を規格準拠にする(VC14以降)。ワイド文字列には%sでなく%lsなどを使うこと
-#define _CRT_STDIO_ISO_WIDE_SPECIFIERS
+#define _CRT_STDIO_LEGACY_WIDE_SPECIFIERS
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
