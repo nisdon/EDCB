@@ -44,13 +44,13 @@ void CSendCtrlCmd::SetSendMode(
 {
 	if( this->tcpFlag == FALSE && tcpFlag_ ){
 #if defined(_WIN32)
-		WSAData wsaData;
-		WSAStartup(MAKEWORD(2, 2), &wsaData);
+//		WSAData wsaData;
+//		WSAStartup(MAKEWORD(2, 2), &wsaData);
 #endif
 		this->tcpFlag = TRUE;
 	}else if( this->tcpFlag && tcpFlag_ == FALSE ){
 #if defined(_WIN32)
-		WSACleanup();
+//		WSACleanup();
 #endif
 		this->tcpFlag = FALSE;
 	}
