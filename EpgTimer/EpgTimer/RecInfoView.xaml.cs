@@ -33,6 +33,11 @@ namespace EpgTimer
         {
             InitializeComponent();
 
+            // スクロールバーの操作性のため
+            var margin = listView_recinfo.Margin;
+            margin.Right = -listView_recinfo.BorderThickness.Right + (double)FindResource("AppScrollBarAdjustment");
+            listView_recinfo.Margin = margin;
+
             var style = (Style)listView_recinfo.FindResource("itemStyle");
             style.BasedOn = listView_recinfo.ItemContainerStyle;
             listView_recinfo.ItemContainerStyle = style;
@@ -50,6 +55,12 @@ namespace EpgTimer
             if (Settings.Instance.RecInfoHideButton)
             {
                 stackPanel_button.Visibility = Visibility.Collapsed;
+                frameworkElement_buttonMargin.Visibility = Visibility.Collapsed;
+            }
+            if (Settings.Instance.RecInfoDockButtonToLeft)
+            {
+                Grid.SetColumn(stackPanel_button, 0);
+                frameworkElement_buttonMargin.Visibility = Visibility.Collapsed;
             }
             listView_recinfo.AlternationCount = Settings.Instance.RecEndAlternationCount;
             if (Settings.ContextMenuResourceDictionary != null)
@@ -193,7 +204,7 @@ namespace EpgTimer
                 if (listView_recinfo.SelectedItem != null)
                 {
                     var item = (RecInfoItem)listView_recinfo.SelectedItem;
-                    string errorMessage = CommonManager.Instance.FilePlay(item.RecFilePath);
+                    string errorMessage = CommonManager.Instance.FilePlay(item.RecFilePath, item.ID);
                     if (errorMessage != null && item.RecFilePath.Length > 0)
                     {
                         // ポップアップはすぐ閉じてしまうため
@@ -251,7 +262,7 @@ namespace EpgTimer
             if (listView_recinfo.SelectedItem != null)
             {
                 var item = (RecInfoItem)listView_recinfo.SelectedItem;
-                string errorMessage = CommonManager.Instance.FilePlay(item.RecFilePath);
+                string errorMessage = CommonManager.Instance.FilePlay(item.RecFilePath, item.ID);
                 if (errorMessage != null)
                 {
                     popup_error.DataContext = errorMessage;
@@ -361,14 +372,9 @@ namespace EpgTimer
                 MenuItem menuItem = item as MenuItem;
                 if (menuItem != null)
                 {
-                    if (menuItem.Name == "HideButton")
-                    {
-                        menuItem.IsChecked = Settings.Instance.RecInfoHideButton;
-                    }
-                    else
-                    {
-                        menuItem.IsChecked = Settings.Instance.RecInfoListColumn.Any(info => info.Tag == menuItem.Name);
-                    }
+                    menuItem.IsChecked = menuItem.Name == "HideButton" ? Settings.Instance.RecInfoHideButton :
+                                         menuItem.Name == "DockButtonToLeft" ? Settings.Instance.RecInfoDockButtonToLeft :
+                                         Settings.Instance.RecInfoListColumn.Any(info => info.Tag == menuItem.Name);
                 }
             }
         }
@@ -408,6 +414,14 @@ namespace EpgTimer
         {
             Settings.Instance.RecInfoHideButton = ((MenuItem)sender).IsChecked;
             stackPanel_button.Visibility = Settings.Instance.RecInfoHideButton ? Visibility.Collapsed : Visibility.Visible;
+            frameworkElement_buttonMargin.Visibility = Settings.Instance.RecInfoHideButton || Settings.Instance.RecInfoDockButtonToLeft ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void dockButtonToLeft_Click(object sender, RoutedEventArgs e)
+        {
+            Settings.Instance.RecInfoDockButtonToLeft = ((MenuItem)sender).IsChecked;
+            Grid.SetColumn(stackPanel_button, Settings.Instance.RecInfoDockButtonToLeft ? 0 : 3);
+            frameworkElement_buttonMargin.Visibility = Settings.Instance.RecInfoHideButton || Settings.Instance.RecInfoDockButtonToLeft ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void listView_recinfo_MouseEnter(object sender, MouseEventArgs e)
