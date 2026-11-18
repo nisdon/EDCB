@@ -233,6 +233,27 @@ int RecvAll(SOCKET sock, char* buf, int len, int flags)
 	}
 	return n;
 }
+int RecvJson(SOCKET sock, char* buf, int len, int flags)
+{
+	int n = 0;
+	int cnt = 0;
+	while( n < len ){
+		int ret = recv(sock, buf + n, 1, flags);
+		if( ret < 0 ){
+			return ret;
+		}else if( ret <= 0 ){
+			break;
+		}
+		if(buf[n] == '{')
+			cnt++;
+		else if(buf[n] == '}')
+			cnt--;
+		n++;
+		if(cnt <= 0)
+			break;
+	}
+	return n;
+}
 
 DWORD ConnectTCP(const wstring& ip, DWORD port, DWORD timeOut, int* client_sock)
 {
@@ -476,7 +497,7 @@ DWORD ReceiveChar(const char* cmd, int cmd_size, char* res, int res_size, int so
 		return CMD_ERR;
 
 	//受信
-	if( RecvAll(sock, res, res_size, 0 ) != res_size )
+	if( RecvJson(sock, res, res_size, 0 ) < 1)
 		return CMD_ERR;
 
 	return CMD_SUCCESS;
