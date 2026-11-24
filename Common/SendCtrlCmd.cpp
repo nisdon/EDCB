@@ -24,13 +24,11 @@ CSendCtrlCmd::CSendCtrlCmd(void)
 	this->pipeName = CMD2_EPG_SRV_PIPE;
 	this->sendIP = L"127.0.0.1";
 	this->sendPort = 5678;
-	this->wakeupFd = 0;
 }
 
 
 CSendCtrlCmd::~CSendCtrlCmd(void)
 {
-	CloseWakeupFd();
 	SetSendMode(FALSE);
 }
 
@@ -413,81 +411,41 @@ DWORD ReceiveCommand(const CCmdStream& cmd, CCmdStream* res, int sock)
 	return res->GetParam();
 #endif
 }
-DWORD ReceiveCommandWithPoll(const CCmdStream& cmd, CCmdStream* res, int sock, int wakeup_fd)
+DWORD ReceiveCommand2(CCmdStream* res, int sock)
 {
 #ifdef _WIN32
-	//送信
-	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
+	//受信
+	BYTE head[8];
+	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
 		return CMD_ERR;
 	}
-	//ロングポーリング
-	std::vector<WSAPOLLFD> fds(1);
-	fds[0].fd = sock;
-	fds[0].events = POLLRDNORM;
-	fds[0].revents = 0;
-
-	int timeout_ms = -1;
-	int ret = WSAPoll(fds.data(), fds.size(), timeout_ms);
-	if(ret < 0)
-	{
+	res->SetParam(head[0] | head[1] << 8 | head[2] << 16 | (DWORD)head[3] << 24);
+	res->Resize(head[4] | head[5] << 8 | head[6] << 16 | (DWORD)head[7] << 24);
+	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
 		return CMD_ERR;
-	}
-	else if(ret == 0)
-	{
-		return CMD_ERR_TIMEOUT;
-	}	
-	if(fds[0].revents & POLLRDNORM)
-	{
-		DWORD head[2];
-
-		//受信
-		if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
-			return CMD_ERR;
-		}
-		res->SetParam(head[0]);
-		res->Resize(head[1]);
-		if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
-			return CMD_ERR;
-		}
 	}
 	return res->GetParam();
 #else
+	//受信
+	DWORD head[2];
+	if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
+		return CMD_ERR;
+	}
+	res->SetParam(head[0]);
+	res->Resize(head[1]);
+	if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
+		return CMD_ERR;
+	}
+	return res->GetParam();
+#endif
+}
+DWORD SendCommand(const CCmdStream& cmd, int sock)
+{
 	//送信
 	if( send(sock, (const char*)cmd.GetStream(), cmd.GetStreamSize(), 0) != (int)cmd.GetStreamSize() ){
 		return CMD_ERR;
 	}
-	//ロングポーリング
-	std::vector<pollfd> fds(1);
-	fds[0].fd = sock;
-	fds[0].events = POLLIN;
-	fds[0].revents = 0;
-
-	int timeout_ms = -1;
-	int ret = poll(fds.data(), fds.size(), timeout_ms);
-	if(ret < 0)
-	{
-		return CMD_ERR;
-	}
-	else if(ret == 0)
-	{
-		return CMD_ERR_TIMEOUT;
-	}	
-	if(fds[0].revents & POLLIN)
-	{
-		DWORD head[2];
-
-		//受信
-		if( RecvAll(sock, (char*)head, sizeof(head), 0) != (int)sizeof(head) ){
-			return CMD_ERR;
-		}
-		res->SetParam(head[0]);
-		res->Resize(head[1]);
-		if( RecvAll(sock, (char*)res->GetData(), res->GetDataSize(), 0) != (int)res->GetDataSize() ){
-			return CMD_ERR;
-		}
-	}
-	return res->GetParam();
-#endif
+	return CMD_SUCCESS;
 }
 
 DWORD ReceiveChar(const char* cmd, int cmd_size, char* res, int res_size, int sock)
@@ -498,6 +456,14 @@ DWORD ReceiveChar(const char* cmd, int cmd_size, char* res, int res_size, int so
 
 	//受信
 	if( RecvJson(sock, res, res_size, 0 ) < 1)
+		return CMD_ERR;
+
+	return CMD_SUCCESS;
+}
+DWORD SendChar(const char* cmd, int cmd_size, int sock)
+{
+	//送信
+	if( send(sock, cmd, cmd_size, 0) != cmd_size )
 		return CMD_ERR;
 
 	return CMD_SUCCESS;
@@ -530,6 +496,21 @@ int ReadSocket(int sock, char* buf, int len)
 }
 }
 
+DWORD CSendCtrlCmd::ReceiveCmdStream(CCmdStream* res, int sock)
+{
+	DWORD ret = CMD_ERR;
+	CCmdStream tmpRes;
+	int tmpSock;
+
+	if( this->tcpFlag == FALSE ){
+		//ToDo: Pipe処理.
+	}
+	else{
+		ret = ReceiveCommand2(res, sock);
+		CloseSocket(sock);
+	}
+	return ret;
+}
 DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res)
 {
 	DWORD ret = CMD_ERR;
@@ -547,29 +528,6 @@ DWORD CSendCtrlCmd::SendCmdStream(const CCmdStream& cmd, CCmdStream* res)
 		if(ret == CMD_SUCCESS)
 		{
 			ret = ReceiveCommand(cmd, res, tmpSock);
-			CloseSocket(tmpSock);
-		}
-	}
-	return ret;
-}
-DWORD CSendCtrlCmd::SendCmdStream2(const CCmdStream& cmd, CCmdStream* res)
-{
-	DWORD ret = CMD_ERR;
-	CCmdStream tmpRes;
-	int tmpSock;
-
-	if( res == NULL ){
-		res = &tmpRes;
-	}
-	if( this->tcpFlag == FALSE ){
-		//ToDo: Pipe処理.
-	}
-	else{
-		ret = ConnectTCP(this->sendIP, this->sendPort, this->connectTimeOut, &tmpSock);
-		if(ret == CMD_SUCCESS)
-		{
-			wakeupFd = tmpSock;
-			ret = ReceiveCommandWithPoll(cmd, res, tmpSock, wakeupFd);
 			CloseSocket(tmpSock);
 		}
 	}
@@ -601,7 +559,28 @@ DWORD CSendCtrlCmd::SendCmdStream3(const CCmdStream& cmd, CCmdStream* res)
 	}
 	return ret;
 }
-DWORD CSendCtrlCmd::SendCharStream(const wstring& ip,
+DWORD CSendCtrlCmd::SendCmdStream4(const CCmdStream& cmd, int* sock)
+{
+	DWORD ret = CMD_ERR;
+	CCmdStream tmpRes;
+
+	if( this->tcpFlag == FALSE ){
+		//ToDo: Pipe処理.
+	}
+	else{
+		ret = ConnectTCP(this->sendIP, this->sendPort, this->connectTimeOut, sock);
+		if(ret == CMD_SUCCESS)
+		{
+			ret = SendCommand(cmd, *sock);
+			if(ret != CMD_SUCCESS)
+			{
+				CloseSocket(*sock);
+			}
+		}
+	}
+	return ret;
+}
+DWORD CSendCtrlCmd::SendJsonStream(const wstring& ip,
 								   unsigned int port,
 								   unsigned int timeOut,
 								   const string& cmd,
@@ -619,6 +598,22 @@ DWORD CSendCtrlCmd::SendCharStream(const wstring& ip,
 	}
 	return ret;
 }
+DWORD CSendCtrlCmd::SendCharStream(const wstring& ip,
+								   unsigned int port,
+								   unsigned int timeOut,
+								   const string& cmd)
+{
+	DWORD ret = CMD_ERR;
+	int tmpSock;
+
+	ret = ConnectTCP(ip, port, timeOut, &tmpSock);
+	if(ret == CMD_SUCCESS)
+	{
+		ret = SendChar(cmd.c_str(), cmd.size(), tmpSock);
+//		CloseSocket(tmpSock);
+	}
+	return ret;
+}
 int CSendCtrlCmd::ReadRelay(char* buf, int len)
 {
 	return ReadSocket(relaySock, buf, len);
@@ -626,12 +621,4 @@ int CSendCtrlCmd::ReadRelay(char* buf, int len)
 void CSendCtrlCmd::CloseRelay()
 {
 	CloseSocket(relaySock);
-}
-void CSendCtrlCmd::CloseWakeupFd()
-{
-	CloseSocket(wakeupFd);
-}
-void CSendCtrlCmd::WriteWakeupFd()
-{
-	WriteSocket(wakeupFd);
 }

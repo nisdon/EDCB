@@ -821,24 +821,23 @@ public:
 		){
 		return SendCmdData3(CMD2_EPG_SRV_RELAY_VIEW_STREAM, val);
 	}
-
-	//現在のNOTIFY_UPDATE_SRV_STATUSを取得する（ロングポーリング）
-	//戻り値：
-	// エラーコード
-	//引数：
-	// val					[IN]巡回カウンター
-	// resVal				[OUT]情報通知用パラメーター
-	DWORD SendWaitNotifySrvStatus(
+	DWORD SendRequestNotify(
 		DWORD val,
-		NOTIFY_SRV_INFO* resVal
+		int* sock
 		){
-		return SendAndReceiveCmdData3(CMD2_EPG_SRV_GET_STATUS_NOTIFY2, val, resVal);
+		return SendCmdData4(CMD2_EPG_SRV_GET_STATUS_NOTIFY2, val, sock);
+	}
+	DWORD RecvRequestNotify(
+		NOTIFY_SRV_INFO* resVal,
+		int sock
+		){
+		return ReceiveCmdData3(resVal, sock);
 	}
 
 	int ReadRelay(char* buf, int len);
 	void CloseRelay();
-	void WriteWakeupFd();
-	DWORD SendCharStream(const wstring& ip, unsigned int port, unsigned int timeOut, const string& cmd, char* res, int char_size);
+	DWORD SendJsonStream(const wstring& ip, unsigned int port, unsigned int timeOut, const string& cmd, char* res, int char_size);
+	DWORD SendCharStream(const wstring& ip, unsigned int port, unsigned int timeOut, const string& cmd);
 
 private:
 	BOOL tcpFlag;
@@ -846,27 +845,25 @@ private:
 	wstring pipeName;
 	wstring sendIP;
 	DWORD sendPort;
-	int wakeupFd;
 	int relaySock;
 	
 	CSendCtrlCmd(const CSendCtrlCmd&);
 	CSendCtrlCmd& operator=(const CSendCtrlCmd&);
+	DWORD ReceiveCmdStream(CCmdStream* res, int sock);
 	DWORD SendCmdStream(const CCmdStream& cmd, CCmdStream* res);
-	DWORD SendCmdStream2(const CCmdStream& cmd, CCmdStream* res);
 	DWORD SendCmdStream3(const CCmdStream& cmd, CCmdStream* res);
+	DWORD SendCmdStream4(const CCmdStream& cmd, int* sock);
 	DWORD SendCmdWithoutData(DWORD param, CCmdStream* res = NULL);
 	DWORD SendCmdWithoutData2(DWORD param, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData(DWORD param, const T& val, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData2(DWORD param, const T& val, CCmdStream* res = NULL);
 	template<class T> DWORD SendCmdData3(DWORD param, const T& val, CCmdStream* res = NULL);
-	template<class T> DWORD SendCmdData4(DWORD param, const T& val, CCmdStream* res = NULL);
+	template<class T> DWORD SendCmdData4(DWORD param, const T& val, int* sock);
 	template<class T> DWORD ReceiveCmdData(DWORD param, T* resVal);
 	template<class T> DWORD ReceiveCmdData2(DWORD param, T* resVal);
+	template<class T> DWORD ReceiveCmdData3(T* resVal, int sock);
 	template<class T, class U> DWORD SendAndReceiveCmdData(DWORD param, const T& val, U* resVal);
 	template<class T, class U> DWORD SendAndReceiveCmdData2(DWORD param, const T& val, U* resVal);
-	template<class T, class U> DWORD SendAndReceiveCmdData3(DWORD param, const T& val, U* resVal);
-
-	inline void CloseWakeupFd();
 };
 
 #if 1 //インライン/テンプレート定義
@@ -906,12 +903,12 @@ DWORD CSendCtrlCmd::SendCmdData3(DWORD param, const T& val, CCmdStream* res)
 	return SendCmdStream3(cmd, res);
 }
 template<class T>
-DWORD CSendCtrlCmd::SendCmdData4(DWORD param, const T& val, CCmdStream* res)
+DWORD CSendCtrlCmd::SendCmdData4(DWORD param, const T& val, int* sock)
 {
 	WORD ver = CMD_VER;
 	CCmdStream cmd(param);
 	cmd.WriteVALUE2WithVersion(ver, val);
-	return SendCmdStream2(cmd, res);
+	return SendCmdStream4(cmd, sock);
 }
 
 template<class T>
@@ -943,6 +940,21 @@ DWORD CSendCtrlCmd::ReceiveCmdData2(DWORD param, T* resVal)
 	return ret;
 }
 
+template<class T>
+DWORD CSendCtrlCmd::ReceiveCmdData3(T* resVal, int sock)
+{
+	CCmdStream res;
+	DWORD ret = ReceiveCmdStream(&res, sock);
+
+	if( ret == CMD_SUCCESS ){
+		WORD ver = 0;
+		if( !res.ReadVALUE2WithVersion(&ver, resVal) ){
+			ret = CMD_ERR;
+		}
+	}
+	return ret;
+}
+
 template<class T, class U>
 DWORD CSendCtrlCmd::SendAndReceiveCmdData(DWORD param, const T& val, U* resVal)
 {
@@ -962,20 +974,6 @@ DWORD CSendCtrlCmd::SendAndReceiveCmdData2(DWORD param, const T& val, U* resVal)
 {
 	CCmdStream res;
 	DWORD ret = SendCmdData2(param, val, &res);
-
-	if( ret == CMD_SUCCESS ){
-		WORD ver = 0;
-		if( !res.ReadVALUE2WithVersion(&ver, resVal) ){
-			ret = CMD_ERR;
-		}
-	}
-	return ret;
-}
-template<class T, class U>
-DWORD CSendCtrlCmd::SendAndReceiveCmdData3(DWORD param, const T& val, U* resVal)
-{
-	CCmdStream res;
-	DWORD ret = SendCmdData4(param, val, &res);
 
 	if( ret == CMD_SUCCESS ){
 		WORD ver = 0;
