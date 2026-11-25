@@ -3,7 +3,6 @@
 #include "StructDef.h"
 
 #include "CtrlCmdDef.h"
-#include "ErrDef.h"
 #include "CtrlCmdUtil.h"
 
 class CSendCtrlCmd
@@ -18,9 +17,9 @@ public:
 
 	//コマンド送信方法の設定
 	//引数：
-	// tcpFlag		[IN] TRUE：TCP/IPモード、FALSE：名前付きパイプモード
+	// tcpFlag		[IN] true：TCP/IPモード、false：名前付きパイプモード
 	void SetSendMode(
-		BOOL tcpFlag_
+		bool tcpFlag_
 		);
 
 	//名前付きパイプモード時の接続先を設定
@@ -840,7 +839,7 @@ public:
 	DWORD SendCharStream(const wstring& ip, unsigned int port, unsigned int timeOut, const string& cmd);
 
 private:
-	BOOL tcpFlag;
+	bool tcpFlag;
 	DWORD connectTimeOut;
 	wstring pipeName;
 	wstring sendIP;
@@ -851,13 +850,13 @@ private:
 	CSendCtrlCmd& operator=(const CSendCtrlCmd&);
 	DWORD ReceiveCmdStream(CCmdStream* res, int sock);
 	DWORD SendCmdStream(const CCmdStream& cmd, CCmdStream* res);
+	DWORD SendCmdWithoutData(DWORD param, CCmdStream* res = nullptr);
+	DWORD SendCmdWithoutData2(DWORD param, CCmdStream* res = nullptr);
 	DWORD SendCmdStream3(const CCmdStream& cmd, CCmdStream* res);
 	DWORD SendCmdStream4(const CCmdStream& cmd, int* sock);
-	DWORD SendCmdWithoutData(DWORD param, CCmdStream* res = NULL);
-	DWORD SendCmdWithoutData2(DWORD param, CCmdStream* res = NULL);
-	template<class T> DWORD SendCmdData(DWORD param, const T& val, CCmdStream* res = NULL);
-	template<class T> DWORD SendCmdData2(DWORD param, const T& val, CCmdStream* res = NULL);
-	template<class T> DWORD SendCmdData3(DWORD param, const T& val, CCmdStream* res = NULL);
+	template<class T> DWORD SendCmdData(DWORD param, const T& val, CCmdStream* res = nullptr);
+	template<class T> DWORD SendCmdData2(DWORD param, const T& val, CCmdStream* res = nullptr);
+	template<class T> DWORD SendCmdData3(DWORD param, const T& val, CCmdStream* res = nullptr);
 	template<class T> DWORD SendCmdData4(DWORD param, const T& val, int* sock);
 	template<class T> DWORD ReceiveCmdData(DWORD param, T* resVal);
 	template<class T> DWORD ReceiveCmdData2(DWORD param, T* resVal);

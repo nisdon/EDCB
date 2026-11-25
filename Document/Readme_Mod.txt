@@ -37,7 +37,7 @@ Readme.txtの改変点
 ----------------------------------------
 #### ■動作環境
   必要なランタイムはビルド環境次第になります。  
-  OSは、おそらくXP SP3以降なら動くでしょう(XPはすでに終了しているので未確認)。
+  OSは、ビルド環境によるため未確認ですがおそらくXP SP3以降なら動くでしょう。
 
 #### ■twitter.dllの取り扱いについて
   twitter.dllは削除しました。無視してください。
@@ -93,7 +93,7 @@ Readme_EpgDataCap_Bon.txtの改変点
        .errファイルをShift_JISではなくUTF-8で出力します。
     - デバッグ出力をファイルに保存する【追加】  
       デバッグ出力(OutputDebugStringW)をEpgDataCap_Bon.exeの起動数に応じて
-      EpgDataCap_Bon_DebugLog-{番号}.txtに保存します。
+      EpgDataCap_Bon_Debug-{番号}.logに保存します。
     - BonDriverについてのデバッグ出力を増やす【追加】  
       BonDriverの呼び出しが10秒以上ブロックされた場合などにデバッグ出力します。
       ストリームの統計も1分ごとに出力するようになりますが、これを抑制したいとき
@@ -319,6 +319,9 @@ OSのタイムゾーンの影響を受けなくなりました。予約管理や
         - IPv6【追加】  
           IPv6サーバにします。IPv4IPv6デュアルスタックではありません。
           アクセス制御もIPv6で指定してください(`+::1,+fe80::/64`など)。
+        - 待ち受けポート方式を許可する  
+          EpgTimerNWのネットワーク接続の「クライアント側に待ち受けポートを作る」
+          で接続できるようにします。
         - アクセス制御【追加】  
           EpgTimerSrv.exeが接続を許可するクライアントのIPアドレスを  
             `{許可+|拒否-}{ネットワーク}/{ネットマスク},...`  
@@ -354,7 +357,7 @@ OSのタイムゾーンの影響を受けなくなりました。予約管理や
         情報通知ログのウィンドウの表示にも利用されます。
       - デバッグ出力をファイルに保存する【追加】  
         EpgTimerSrvのデバッグ出力(OutputDebugStringW)をEDCBのルートフォルダの
-        EpgTimerSrvDebugLog.txtに保存します。
+        EpgTimerSrvDebug.logに保存します。
       - EpgTimerSrvの応答をtkntrec版互換にする【追加】  
         ※変更はEpgTimerSrv再起動後に適用されます。
         EpgTimerに対するEpgTimerSrvのふるまいをtkntrec版のEpgTimerSrvと同じにし

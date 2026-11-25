@@ -42,7 +42,7 @@ ifeq ($(OS),Windows_NT)
     SyoboiCalUtil.cpp \
     EpgTimerSrv.rc
   TARGETEXT = .exe
-  CPPFLAGS := -I. -DNDEBUG -D_WINDOWS -DEPGTIMERSRV_APPLICATION -D_UNICODE -DUNICODE -DUSE_LUA -DUSE_IPV6 -DNO_CGI -DNO_POPEN -DOPENSSL_API_3_0 $(CPPFLAGS)
+  CPPFLAGS := -I. -DNDEBUG -D_WINDOWS -DEPGTIMERSRV_APPLICATION -D_UNICODE -DUNICODE -DUSE_LUA -DNO_LUA_SERVER_PAGE -DUSE_IPV6 -DNO_CGI -DNO_SSI -DNO_BUILTIN_PUT_DELETE_METHODS -DNO_POPEN -DOPENSSL_API_3_0 $(CPPFLAGS)
   #CPPFLAGS += -DEPGDB_STD_WREGEX
   CFLAGS := -Os $(CFLAGS)
   CXXFLAGS := -std=c++17 -pedantic-errors -Os $(CXXFLAGS)
@@ -60,7 +60,7 @@ ifeq ($(OS),Windows_NT)
   endif
 else
   TARGETEXT =
-  CPPFLAGS := -I. -DNDEBUG -DEPGTIMERSRV_APPLICATION -DUSE_LUA -DUSE_IPV6 -DNO_CGI -DNO_POPEN -DOPENSSL_API_3_0 $(CPPFLAGS)
+  CPPFLAGS := -I. -DNDEBUG -DEPGTIMERSRV_APPLICATION -DUSE_LUA -DNO_LUA_SERVER_PAGE -DUSE_IPV6 -DNO_CGI -DNO_SSI -DNO_BUILTIN_PUT_DELETE_METHODS -DNO_POPEN -DOPENSSL_API_3_0 $(CPPFLAGS)
   CFLAGS := -Os -pthread $(CFLAGS)
   CXXFLAGS := -std=c++17 -pedantic-errors -Os -pthread $(CXXFLAGS)
   LDFLAGS2 = -Wl,-s -pthread $(LDFLAGS)
@@ -84,14 +84,8 @@ stdafx.h.gch: stdafx.h ../../Common/Common.h targetver.h
 	$(COMPILE.cpp) $(OUTPUT_OPTION) $<
 %.c.obj: %.c $(CUR_ALL_H)
 	$(COMPILE.c) $(OUTPUT_OPTION) $<
-%.rc.obj: %.rc.u.obj resource.h targetver.h
+%.rc.obj: %.rc resource.h targetver.h
 	$(WINDRES) $(CPPFLAGS) -c 65001 -J rc -O coff $(OUTPUT_OPTION) $<
-%.rc.u.obj: %.rc
-ifdef MSYSTEM
-	iconv -f UTF-16LE -t UTF-8 $< >$@
-else
-	powershell -NoProfile -Command "&{cat $<|Out-File -Encoding UTF8 $@}"
-endif
 clean:
 	$(RM) stdafx.h.gch *.obj $(TARGET)$(TARGETEXT) $(TARGET).map
 install: $(TARGET)$(TARGETEXT)

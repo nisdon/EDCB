@@ -26,7 +26,6 @@
 #include "../../BonCtrl/PATUtil.h"
 #include "../../Common/EpgDataCap3Util.h"
 #include "../../Common/EpgTimerUtil.h"
-#include "../../Common/ErrDef.h"
 #include "../../Common/PathUtil.h"
 #include "../../Common/StringUtil.h"
 #ifdef _WIN32
@@ -57,19 +56,19 @@ int main(int argc, char **argv)
 		UTF8toW(argv[i], s);
 #endif
 		if (seekRatio < 0) {
-			seekRatio = wcstod(s.c_str(), NULL);
+			seekRatio = wcstod(s.c_str(), nullptr);
 			if (seekRatio < 0 || seekRatio > 1) {
 				fputws(L"Error: -s specified value is out of range.\n", stderr);
 				return 1;
 			}
 		} else if (limitReadBytes == 0) {
-			limitReadBytes = (int)wcstol(s.c_str(), NULL, 10);
+			limitReadBytes = (int)wcstol(s.c_str(), nullptr, 10);
 			if (limitReadBytes < 48128) {
 				fputws(L"Error: -l specified value is out of range.\n", stderr);
 				return 1;
 			}
 		} else if (progNumOrIndex == 0) {
-			progNumOrIndex = (int)wcstol(s.c_str(), NULL, 10);
+			progNumOrIndex = (int)wcstol(s.c_str(), nullptr, 10);
 			if (progNumOrIndex == 0 || progNumOrIndex > 65535) {
 				fputws(L"Error: -n specified value is out of range.\n", stderr);
 				return 1;
@@ -148,25 +147,25 @@ int main(int argc, char **argv)
 #endif
 
 	CEpgDataCap3Util epgUtil;
-	bool initialized = epgUtil.Initialize(FALSE) == NO_ERR;
+	epgUtil.Initialize();
 #ifdef _WIN32
-	if (!initialized) {
+	if (!epgUtil.IsInitialized()) {
 		// 1階層上にDLLがあれば使う
 		fs_path path = GetModulePath().parent_path().parent_path();
 		if (!path.empty()) {
 			path.append(L"EpgDataCap3" EDCB_LIB_EXT);
-			initialized = epgUtil.Initialize(FALSE, path.c_str()) == NO_ERR;
+			epgUtil.Initialize(path.c_str());
 		}
 	}
 #endif
-	if (!initialized) {
+	if (!epgUtil.IsInitialized()) {
 		fputws(L"Error: EpgDataCap3" EDCB_LIB_EXT " not found.\n", stderr);
 		return 1;
 	}
 
 	WORD nitPid = 0;
 	BYTE nitCounter = 0;
-	SERVICE_INFO *service = NULL;
+	SERVICE_INFO *service = nullptr;
 	CPacketInit packetInit;
 	CPATUtil patUtil;
 	BYTE inData[48128];
@@ -189,7 +188,7 @@ int main(int argc, char **argv)
 						patUtil.AddPacket(packet);
 					}
 				}
-				if (nitPid != 0 && pid != nitPid && epgUtil.AddTSPacket(outData + i, 188) != NO_ERR) {
+				if (nitPid != 0 && pid != nitPid && !epgUtil.AddTSPacket(outData + i, 188)) {
 					fputws(L"Error: CEpgDataCap3Util::AddTSPacket().\n", stderr);
 					return 1;
 				}
@@ -222,7 +221,7 @@ int main(int argc, char **argv)
 			packet[4] = 0; // pointer_field
 			std::copy(nitTable, nitTable + sizeof(nitTable), packet + 5);
 			std::fill(packet + 5 + sizeof(nitTable), packet + 188, (BYTE)0xFF);
-			if (epgUtil.AddTSPacket(packet, 188) != NO_ERR) {
+			if (!epgUtil.AddTSPacket(packet, 188)) {
 				fputws(L"Error: CEpgDataCap3Util::AddTSPacket().\n", stderr);
 				return 1;
 			}
@@ -244,7 +243,7 @@ int main(int argc, char **argv)
 		// 指定されたサービスIDについての情報を取得
 		DWORD serviceListSize;
 		SERVICE_INFO *serviceList;
-		if (!service && progNumOrIndex > 0 && epgUtil.GetServiceListActual(&serviceListSize, &serviceList) == NO_ERR) {
+		if (!service && progNumOrIndex > 0 && epgUtil.GetServiceListActual(&serviceListSize, &serviceList)) {
 			for (DWORD i = 0; i < serviceListSize; i++) {
 				if (serviceList[i].service_id == progNumOrIndex) {
 					service = serviceList + i;
@@ -259,7 +258,7 @@ int main(int argc, char **argv)
 
 		// 番組情報を取得
 		EPG_EVENT_INFO *epgInfo;
-		if (service && epgUtil.GetEpgInfo(service->original_network_id, service->transport_stream_id, service->service_id, following, &epgInfo) == NO_ERR) {
+		if (service && epgUtil.GetEpgInfo(service->original_network_id, service->transport_stream_id, service->service_id, following, &epgInfo)) {
 			EPGDB_EVENT_INFO epgdbInfo;
 			ConvertEpgInfo(service->original_network_id, service->transport_stream_id, service->service_id, epgInfo, &epgdbInfo);
 			wstring outTextW = L"\xFEFF" +
@@ -267,7 +266,7 @@ int main(int argc, char **argv)
 					return onid == service->original_network_id &&
 					       tsid == service->transport_stream_id &&
 					       sid == service->service_id &&
-					       service->extInfo ? service->extInfo->service_name : NULL;
+					       service->extInfo ? service->extInfo->service_name : nullptr;
 				});
 			if (UTIL_NEWLINE[0] != L'\r') {
 				Replace(outTextW, L"\r\n", L"\n");
